@@ -274,8 +274,6 @@ window.navigateTo = function (page) {
         if (productsView) productsView.classList.add('products-view-hidden');
     } else if (page === 'history') {
         loadOrderHistory();
-    } else if (page === 'referral') {
-        loadReferralCode();
     } else if (page === 'checkout') {
         displayCheckoutItems();
         setupPaymentMethodListeners();
@@ -662,60 +660,6 @@ window.showAdminTab = function (tab) {
         // Завантаження клієнтів для селекту
         loadClientsForMessages();
 
-    } else if (tab === 'reassign') {
-        adminContent.innerHTML = `
-            <div style="margin-top: 20px;">
-                <h3>🔁 Перенесення замовлень</h3>
-                <form style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>З якого Telegram ID:</label>
-                        <select id="reassignFromSelect" onchange="selectReassignFrom(this.value)" style="font-size: 16px; padding: 14px; margin-bottom: 8px;">
-                            <option value="">-- Завантаження клієнтів... --</option>
-                        </select>
-                        <input type="text" id="reassignFromId" placeholder="1342762796" required>
-                    </div>
-                    <div class="form-group">
-                        <label>На який Telegram ID:</label>
-                        <select id="reassignToSelect" onchange="selectReassignTo(this.value)" style="font-size: 16px; padding: 14px; margin-bottom: 8px;">
-                            <option value="">-- Завантаження клієнтів... --</option>
-                        </select>
-                        <input type="text" id="reassignToId" placeholder="2066968588" required>
-                    </div>
-                    <div class="form-group">
-                        <label>Номери замовлень (опціонально):</label>
-                        <textarea id="reassignOrderNumbers" placeholder="ORD-...\nORD-..." style="min-height: 120px;"></textarea>
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">
-                            Якщо залишити порожнім — перенесе всі замовлення цього клієнта.
-                        </small>
-                    </div>
-                    <button type="button" onclick="reassignOrders()" class="btn btn-primary btn-full">✅ Перенести</button>
-                </form>
-                <div id="reassignResult" style="font-size: 13px; color: var(--text-light);"></div>
-            </div>
-        `;
-
-        loadClientsForReassign();
-
-    } else if (tab === 'referrals') {
-        adminContent.innerHTML = `
-            <div style="margin-top: 20px;">
-                <h3>🎉 Реферальна система</h3>
-                <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 20px;">
-                    <p style="margin: 0; color: var(--text-light); font-size: 14px;">
-                        Це таблиця всіх реферальних взаємозв'язків в системі.<br>
-                        Показує хто кого розповсюджував та скільки вони вже отримали.
-                    </p>
-                </div>
-                <div id="referralsContent">
-                    <div style="text-align: center; padding: 40px 20px; color: var(--text-light);">
-                        завантаження...
-                    </div>
-                </div>
-            </div>
-        `;
-
-        loadAdminReferrals();
-
     } else if (tab === 'promocodes') {
         adminContent.innerHTML = `
             <div style="margin-top: 20px;">
@@ -746,37 +690,6 @@ window.showAdminTab = function (tab) {
 
         // Завантаження промокодів
         loadAdminPromos();
-    } else if (tab === 'analytics') {
-        adminContent.innerHTML = `
-            <div style="margin-top: 20px;">
-                <h3>📊 Аналітика і Експорт</h3>
-                <div style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
-                    <button onclick="downloadOutOfStock()" class="btn btn-primary" style="font-size: 16px; padding: 16px;">
-                        🔴 Закінчилось<br><small style="font-size: 12px; opacity: 0.8;">Експорт CSV</small>
-                    </button>
-                    <button onclick="downloadPopularProducts()" class="btn btn-primary" style="font-size: 16px; padding: 16px;">
-                        🏆 Найпопулярніше<br><small style="font-size: 12px; opacity: 0.8;">Експорт CSV</small>
-                    </button>
-                    <button onclick="downloadFastSelling()" class="btn btn-primary" style="font-size: 16px; padding: 16px;">
-                        ⚡ Швидко розходяться<br><small style="font-size: 12px; opacity: 0.8;">Експорт CSV</small>
-                    </button>
-                    <button onclick="downloadAllAnalytics()" class="btn btn-primary" style="font-size: 16px; padding: 16px;">
-                        📋 Весь звіт<br><small style="font-size: 12px; opacity: 0.8;">JSON архів</small>
-                    </button>
-                    <button onclick="sendOutOfStockReport()" class="btn btn-primary" style="font-size: 16px; padding: 16px; background: #ff6b6b;">
-                        📤 Отправити у чат<br><small style="font-size: 12px; opacity: 0.8;">Закінчилось товарів</small>
-                    </button>
-                </div>
-
-                <h3>📈 Статистика</h3>
-                <div id="analyticsStats" style="background: var(--light); padding: 20px; border-radius: 12px;">
-                    <div style="text-align: center; padding: 40px 20px; color: var(--text-light);">
-                        Завантаження...
-                    </div>
-                </div>
-            </div>
-        `;
-        loadAnalyticsData();
     }
 }
 
@@ -1666,20 +1579,6 @@ window.selectClient = function (telegramId) {
     }
 }
 
-window.selectReassignFrom = function (telegramId) {
-    if (telegramId) {
-        const input = document.getElementById('reassignFromId');
-        if (input) input.value = telegramId;
-    }
-}
-
-window.selectReassignTo = function (telegramId) {
-    if (telegramId) {
-        const input = document.getElementById('reassignToId');
-        if (input) input.value = telegramId;
-    }
-}
-
 window.goBackToCatalog = function () {
     const categoryMenu = document.getElementById('categoryMenu');
     const brandMenu = document.getElementById('brandMenu');
@@ -1755,103 +1654,6 @@ window.initTelegramUser = async function () {
     // Re-check admin button visibility after user data is loaded
     if (typeof checkAndHideAdminButton === 'function') {
         checkAndHideAdminButton();
-    }
-}
-
-// Paste referral code from clipboard
-window.pasteReferralCode = async function () {
-    try {
-        const codeInput = document.getElementById('referralInputCode');
-        if (!codeInput) return;
-
-        // Try to read from clipboard
-        const text = await navigator.clipboard.readText();
-        const code = text.trim().toUpperCase();
-
-        if (!code) {
-            showToast('📋 Буфер обміну порожній');
-            return;
-        }
-
-        // Validate code format (8 characters max, alphanumeric)
-        if (!/^[A-Z0-9]{1,8}$/.test(code)) {
-            showToast('❌ Код повинен містити тільки літери та цифри');
-            return;
-        }
-
-        codeInput.value = code;
-        showToast('✅ Код вставлено!');
-    } catch (error) {
-        console.error('Error pasting referral code:', error);
-        showToast('❌ Не вдалося вставити код з буферу обміну');
-    }
-}
-
-// Apply referral code from referral page
-window.applyReferralCode = async function () {
-    const codeInput = document.getElementById('referralInputCode');
-    const code = codeInput?.value.trim().toUpperCase() || '';
-    const statusEl = document.getElementById('applyReferralStatus');
-
-    if (!code) {
-        showToast('⚠️ Введи код!');
-        return;
-    }
-
-    showLoading(true);
-
-    try {
-        const response = await fetch(CONFIG.API_URL + '/users/apply-referral-code', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                initData: window.Telegram?.WebApp?.initData || '',
-                referral_code: code
-            })
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-            // Update user data in localStorage
-            if (data.user) {
-                localStorage.setItem('currentUser', JSON.stringify({
-                    ...data.user,
-                    telegramId: data.user.telegramId || data.user.telegram_id
-                }));
-            }
-            // Зберігаємо код для використання на замовленні
-            localStorage.setItem('referralCodeUsedByCustomer', code);
-
-            // Показуємо успішний статус
-            statusEl.style.display = 'block';
-            statusEl.style.backgroundColor = '#c8e6c9';
-            statusEl.style.color = '#2e7d32';
-            statusEl.textContent = '✅ Код успішно активований! -10 zł на твоє перше замовлення!';
-
-            // Очищаємо поле введення
-            codeInput.value = '';
-
-            // Перезавантажуємо дані реферальної системи
-            if (typeof window.loadReferralCode === 'function') {
-                setTimeout(() => window.loadReferralCode(), 800);
-            }
-        } else {
-            statusEl.style.display = 'block';
-            statusEl.style.backgroundColor = '#ffcdd2';
-            statusEl.style.color = '#c62828';
-            statusEl.textContent = '❌ ' + (data.error || 'Помилка');
-        }
-    } catch (error) {
-        console.error('Error applying referral code:', error);
-        statusEl.style.display = 'block';
-        statusEl.style.backgroundColor = '#ffcdd2';
-        statusEl.style.color = '#c62828';
-        statusEl.textContent = '❌ Помилка при обробці коду';
-    } finally {
-        showLoading(false);
     }
 }
 
@@ -2084,14 +1886,7 @@ window.confirmOrder = async function () {
         console.log('🧑 Current user from localStorage:', currentUser);
         console.log('📱 Telegram user from localStorage:', telegramUser);
 
-        let discount = parseFloat(localStorage.getItem('vaper_discount') || 0);
-
-        // Додаємо скидку -10 zł якщо користувач вводив реферальний код при реєстрації
-        const referralCodeUsedAtSignup = localStorage.getItem('referralCodeUsedByCustomer');
-        if (referralCodeUsedAtSignup) {
-            discount += 10; // -10 zł для того хто вводить код
-        }
-
+        const discount = parseFloat(localStorage.getItem('vaper_discount') || 0);
         const promocode = localStorage.getItem('vaper_promocode');
         const deliveryEstimateRaw = parseFloat(localStorage.getItem('vaper_delivery_fee_estimate') || 0);
         const deliveryEstimate = deliveryType === 'delivery' && Number.isFinite(deliveryEstimateRaw) && deliveryEstimateRaw > 0
@@ -2166,7 +1961,6 @@ window.confirmOrder = async function () {
         cart.clear();
         localStorage.removeItem('vaper_discount');
         localStorage.removeItem('vaper_promocode');
-        localStorage.removeItem('referralCodeUsedByCustomer');
         document.getElementById('promoInput').value = '';
 
         // Показання підтвердження
@@ -2589,112 +2383,6 @@ window.insertQuickMessage = function (text) {
 }
 
 // Перенесення замовлень між користувачами
-window.reassignOrders = async function () {
-    const fromTelegramId = document.getElementById('reassignFromId')?.value.trim();
-    const toTelegramId = document.getElementById('reassignToId')?.value.trim();
-    const orderNumbersRaw = document.getElementById('reassignOrderNumbers')?.value || '';
-    const resultEl = document.getElementById('reassignResult');
-
-    if (!fromTelegramId || !toTelegramId) {
-        showToast('Заповніть обидва Telegram ID');
-        return;
-    }
-
-    if (!confirm('Перенести замовлення?')) {
-        return;
-    }
-
-    const orderNumbers = orderNumbersRaw
-        .split(/[\s,]+/)
-        .map(value => value.trim())
-        .filter(Boolean);
-
-    showLoading(true);
-
-    try {
-        const adminHeaders = getAdminHeaders();
-        const payload = {
-            fromTelegramId,
-            toTelegramId
-        };
-
-        if (orderNumbers.length > 0) {
-            payload.orderNumbers = orderNumbers;
-        }
-
-        const response = await fetch(`${CONFIG.API_URL}/orders/reassign`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                ...adminHeaders
-            },
-            body: JSON.stringify(payload)
-        });
-
-        if (response.ok) {
-            const data = await response.json();
-            showToast(`✅ Перенесено: ${data.updatedCount}`);
-            if (resultEl) {
-                resultEl.textContent = `Оновлено замовлень: ${data.updatedCount}`;
-            }
-        } else {
-            const error = await response.json();
-            showToast(`❌ Помилка: ${error.error || 'Не вдалося перенести'}`);
-            if (resultEl) {
-                resultEl.textContent = `Помилка: ${error.error || 'Не вдалося перенести'}`;
-            }
-        }
-    } catch (error) {
-        console.error('Error reassigning orders:', error);
-        showToast('❌ Помилка перенесення');
-        if (resultEl) {
-            resultEl.textContent = 'Помилка перенесення';
-        }
-    } finally {
-        showLoading(false);
-    }
-}
-
-window.loadClientsForReassign = async function () {
-    try {
-        const url = CONFIG.API_URL + '/users/all';
-        const adminHeaders = getAdminHeaders();
-        const response = await axios.get(url, { headers: adminHeaders });
-        const clients = response.data;
-
-        const fromSelect = document.getElementById('reassignFromSelect');
-        const toSelect = document.getElementById('reassignToSelect');
-
-        if (!fromSelect || !toSelect) return;
-
-        if (!clients || clients.length === 0) {
-            fromSelect.innerHTML = '<option value="">-- Немає клієнтів --</option>';
-            toSelect.innerHTML = '<option value="">-- Немає клієнтів --</option>';
-            return;
-        }
-
-        clients.sort((a, b) => (b.orders?.length || 0) - (a.orders?.length || 0));
-
-        const options = clients.map(client => {
-            const username = client.username ? `@${client.username}` : '';
-            const firstName = client.first_name || client.firstName || 'Невідомий';
-            const ordersCount = client.orders?.length || 0;
-            return `<option value="${client.telegramId}">
-                ${firstName} ${username} (${client.telegramId}) - ${ordersCount} замовлень
-            </option>`;
-        }).join('');
-
-        fromSelect.innerHTML = '<option value="">-- Виберіть клієнта --</option>' + options;
-        toSelect.innerHTML = '<option value="">-- Виберіть клієнта --</option>' + options;
-    } catch (error) {
-        console.error('Error loading clients for reassign:', error);
-        const fromSelect = document.getElementById('reassignFromSelect');
-        const toSelect = document.getElementById('reassignToSelect');
-        if (fromSelect) fromSelect.innerHTML = '<option value="">-- Помилка завантаження --</option>';
-        if (toSelect) toSelect.innerHTML = '<option value="">-- Помилка завантаження --</option>';
-    }
-}
-
 window.refreshClientProfiles = async function () {
     try {
         showLoading(true);
@@ -2850,207 +2538,3 @@ window.deletePromo = async function (code) {
         showLoading(false);
     }
 }
-
-// Load admin referrals
-window.loadAdminReferrals = async function () {
-    try {
-        const adminHeaders = getAdminHeaders();
-        const response = await fetch(CONFIG.API_URL + '/admin/referrals', {
-            method: 'GET',
-            headers: {
-                'Content-Type': 'application/json',
-                ...adminHeaders
-            }
-        });
-
-        if (!response.ok) {
-            throw new Error('Failed to load referrals');
-        }
-
-        const referrals = await response.json();
-        const referralsContent = document.getElementById('referralsContent');
-
-        if (!referrals || referrals.length === 0) {
-            referralsContent.innerHTML = '<p style="text-align: center; padding: 40px 20px; color: var(--text-light);">Реферальних зв\'язків не знайдено</p>';
-            return;
-        }
-
-        // Group by referrer
-        const grouped = {};
-        referrals.forEach(ref => {
-            const referrerId = ref.referrer.telegramId;
-            if (!grouped[referrerId]) {
-                grouped[referrerId] = {
-                    referrer: ref.referrer,
-                    referrals: []
-                };
-            }
-            grouped[referrerId].referrals.push(ref);
-        });
-
-        // Render grouped referrals
-        const html = Object.values(grouped).map(group => `
-            <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <strong>👤 ${group.referrer.name}</strong>
-                    <span style="background: var(--primary); color: white; padding: 4px 10px; border-radius: 6px; font-size: 12px;">
-                        ${group.referrals.length} людина(и)
-                    </span>
-                </div>
-                <div style="font-size: 12px; color: var(--text-light); margin-bottom: 8px;">
-                    🆔 ${group.referrer.telegramId}
-                </div>
-                <div style="border-top: 1px solid rgba(201, 163, 74, 0.1); padding-top: 12px;">
-                    ${group.referrals.map(ref => {
-            const status = ref.status === 'pending' ? '⏳ Очікує' : '✅ Використано';
-            const date = new Date(ref.createdAt).toLocaleDateString('uk-UA');
-            return `
-                            <div style="font-size: 13px; margin-bottom: 6px; padding: 6px; background: rgba(255,255,255,0.5); border-radius: 6px;">
-                                → <strong>${ref.referred.name}</strong> | ${ref.rewardAmount} zł | ${status} | ${date}
-                            </div>
-                        `;
-        }).join('')}
-                </div>
-            </div>
-        `).join('');
-
-        referralsContent.innerHTML = html;
-    } catch (error) {
-        console.error('Error loading referrals:', error);
-        document.getElementById('referralsContent').innerHTML = '<p style="color: red; text-align: center;">❌ Помилка завантаження</p>';
-    }
-}
-
-// Referral Program Functions
-
-window.loadReferralCode = async function () {
-    try {
-        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-        const telegramId = currentUser.telegramId || currentUser.telegram_id || currentUser.tg_user?.id || currentUser.id;
-
-        if (!telegramId) {
-            console.log('No telegramId found for referral code');
-            return;
-        }
-
-        const response = await apiCall('GET', `/users/${telegramId}/referral-code`);
-
-        if (response && response.referralCode) {
-            document.getElementById('referralCodeText').textContent = response.referralCode;
-            document.getElementById('rewardBalance').textContent = `${response.rewardRemaining || 0} zł`;
-        } else {
-            console.log('No referral code received');
-        }
-
-        // Show referrer info if user used a referral code
-        if (response && response.referrerInfo) {
-            const referrerSection = document.getElementById('referrerInfoSection');
-            document.getElementById('referrerName').textContent = `👤 ${response.referrerInfo.name}`;
-            document.getElementById('referrerCodeUsed').textContent = `Код: ${response.referralCodeUsed || '-'}`;
-            
-            const createdDate = new Date(currentUser.createdAt || currentUser.created_at || new Date());
-            const dateStr = createdDate.toLocaleDateString('uk-UA');
-            document.getElementById('referrerDate').textContent = `Дата: ${dateStr}`;
-            
-            referrerSection.style.display = 'block';
-        } else {
-            const referrerSection = document.getElementById('referrerInfoSection');
-            if (referrerSection) {
-                referrerSection.style.display = 'none';
-            }
-        }
-
-        await loadReferralHistory();
-    } catch (error) {
-        console.error('Error loading referral code:', error);
-    }
-}
-
-window.loadReferralHistory = async function () {
-    try {
-        const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
-        const telegramId = currentUser.telegramId || currentUser.telegram_id || currentUser.tg_user?.id || currentUser.id;
-
-        if (!telegramId) {
-            return;
-        }
-
-        const rewards = await apiCall('GET', `/referral-rewards/${telegramId}`);
-        const historyList = document.getElementById('referralHistoryList');
-
-        if (!rewards || rewards.length === 0) {
-            historyList.innerHTML = '<p class="loading-text">Ще немає запрошених друзів 😔</p>';
-            return;
-        }
-
-        historyList.innerHTML = rewards.map(reward => {
-            const date = new Date(reward.createdAt).toLocaleDateString('uk-UA');
-            const statusText = reward.status === 'pending' ? '⏳ Очікує' : '✅ Використано';
-            return `
-                <div class="history-item">
-                    <div class="history-item-name">${reward.referredUserName}</div>
-                    <div class="history-item-status">
-                        ${date} • ${statusText} • +${reward.rewardAmount} zł
-                    </div>
-                </div>
-            `;
-        }).join('');
-    } catch (error) {
-        console.error('Error loading referral history:', error);
-        document.getElementById('referralHistoryList').innerHTML = '<p class="loading-text">Помилка завантаження історії</p>';
-    }
-}
-
-window.copyReferralCode = function () {
-    const codeText = document.getElementById('referralCodeText').textContent;
-
-    if (codeText === 'будується...') {
-        showToast('Код ще завантажується...');
-        return;
-    }
-
-    navigator.clipboard.writeText(codeText).then(() => {
-        showToast(`✅ Код ${codeText} скопійовано до буфера обміну!`);
-    }).catch(err => {
-        console.error('Failed to copy:', err);
-        const textarea = document.createElement('textarea');
-        textarea.value = codeText;
-        document.body.appendChild(textarea);
-        textarea.select();
-        document.execCommand('copy');
-        document.body.removeChild(textarea);
-        showToast(`✅ Код ${codeText} скопійовано!`);
-    });
-}
-
-window.shareReferralCode = function () {
-    const codeText = document.getElementById('referralCodeText').textContent;
-
-    if (codeText === 'будується...') {
-        showToast('Код ще завантажується...');
-        return;
-    }
-
-    const message = `🎉 Привіт! Я купую якісні рідини! 💨\n\nЗапрошую тебе - використай мій реф-код: ${codeText}\n\n💰 Обидва отримаємо по -10 zł знижки! 🎁\n\nВідкрий бота:`;
-
-    navigator.clipboard.writeText(message).catch(err => {
-        console.error('Copy error:', err);
-    });
-
-    // Open the bot directly
-    window.open('https://t.me/khan_varash_bot', '_blank');
-
-    showToast('✅ Бота відкрито! Відправ код своєму другу!');
-}
-
-// Load referral code when settings page is opened
-document.addEventListener('DOMContentLoaded', function () {
-    const originalNavigateTo = window.navigateTo;
-    window.navigateTo = function (page) {
-        const result = originalNavigateTo(page);
-        if (page === 'settings') {
-            setTimeout(() => window.loadReferralCode?.(), 100);
-        }
-        return result;
-    };
-});

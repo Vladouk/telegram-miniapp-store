@@ -21,21 +21,12 @@ model User {
   ageVerifiedAt DateTime?
   language  String @default("uk")
   theme     String @default("light")
-  referralCode String? @unique
-  referralCodeUsed String? // The referral code used by this user during signup
-  referralRewardRemaining Float @default(0)
-  referrerTelegramId BigInt? // Who referred this user
   createdAt DateTime @default(now())
 
   orders       Order[]
   recommendations Recommendation[]
-  referralRewardsReceived ReferralReward[] @relation("referrer")
-  referralRewardsGiven ReferralReward[] @relation("referred")
 
   @@index([telegramId])
-  @@index([referralCode])
-  @@index([referralCodeUsed])
-  @@index([referrerTelegramId])
 }
 
 model Product {
@@ -131,21 +122,4 @@ model Recommendation {
 
   @@index([userId])
   @@index([productId])
-}
-
-model ReferralReward {
-  id              Int     @id @default(autoincrement())
-  referrerTelegramId BigInt
-  referredTelegramId BigInt
-  rewardAmount    Float @default(10)
-  status          String @default("pending")
-  createdAt       DateTime @default(now())
-  usedAt          DateTime?
-
-  referrer User @relation("referrer", fields: [referrerTelegramId], references: [telegramId])
-  referred User @relation("referred", fields: [referredTelegramId], references: [telegramId])
-
-  @@index([referrerTelegramId])
-  @@index([referredTelegramId])
-  @@unique([referrerTelegramId, referredTelegramId])
 }

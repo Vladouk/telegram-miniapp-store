@@ -133,15 +133,12 @@ class Cart {
     updateCartSummary() {
         const subtotal = this.getTotal();
         const discount = parseFloat(localStorage.getItem('vaper_discount') || 0);
-        const referralCodeUsed = localStorage.getItem('referralCodeUsedByCustomer');
-        const referralDiscount = referralCodeUsed ? 10 : 0;
-        const totalDiscount = discount + referralDiscount;
         const deliveryType = localStorage.getItem('vaper_delivery_type');
         const estimateRaw = parseFloat(localStorage.getItem('vaper_delivery_fee_estimate') || 0);
         const deliveryEstimate = deliveryType === 'delivery' && Number.isFinite(estimateRaw) && estimateRaw > 0
             ? estimateRaw
             : 0;
-        const total = Math.max(subtotal - totalDiscount + deliveryEstimate, 0);
+        const total = Math.max(subtotal - discount + deliveryEstimate, 0);
 
         document.getElementById('subtotal').textContent = `${subtotal.toFixed(2)} zł`;
         document.getElementById('total').textContent = `${total.toFixed(2)} zł`;
@@ -160,13 +157,6 @@ class Cart {
             document.getElementById('discount').textContent = `-${discount.toFixed(2)} zł`;
         } else {
             document.getElementById('discountItem').style.display = 'none';
-        }
-
-        if (referralDiscount > 0) {
-            document.getElementById('referralDiscountItem').style.display = 'flex';
-            document.getElementById('referralDiscount').textContent = `-${referralDiscount.toFixed(2)} zł`;
-        } else {
-            document.getElementById('referralDiscountItem').style.display = 'none';
         }
 
         const deliveryItem = document.getElementById('deliveryEstimateItem');

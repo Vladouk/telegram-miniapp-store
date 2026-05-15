@@ -144,49 +144,6 @@ function isAdminId(adminIdToCheck) {
   return config.adminIds.some(id => String(id) === String(adminIdToCheck));
 }
 
-// Generate random referral code candidate
-function generateReferralCode() {
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    code += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return code;
-}
-
-async function generateUniqueReferralCode() {
-  let code;
-  let exists = true;
-
-  while (exists) {
-    code = generateReferralCode();
-    exists = await prisma.user.findUnique({ where: { referralCode: code } });
-  }
-
-  return code;
-}
-
-async function ensureUserHasReferralCode(user) {
-  if (!user) return null;
-  if (user.referralCode) return user;
-
-  const referralCode = await generateUniqueReferralCode();
-  return prisma.user.update({
-    where: { telegramId: user.telegramId },
-    data: { referralCode }
-  });
-}
-
-async function assignMissingReferralCodes() {
-  const users = await prisma.user.findMany({
-    where: { referralCode: null }
-  });
-
-  for (const user of users) {
-    await ensureUserHasReferralCode(user);
-  }
-}
-
 // Helper function to send message to all admin IDs
 async function sendToAllAdmins(messagePayload) {
   if (!config.adminIds || config.adminIds.length === 0) {
@@ -327,7 +284,6 @@ async function reverseGeocodeCoordinates(lat, lon) {
 
 async function getOrCreateUser(telegramId, userData) {
   const isAdmin = isAdminId(telegramId.toString());
-  const referralCode = await generateUniqueReferralCode();
 
   const user = await prisma.user.upsert({
     where: { telegramId: BigInt(telegramId) },
@@ -337,13 +293,12 @@ async function getOrCreateUser(telegramId, userData) {
     },
     create: {
       telegramId: BigInt(telegramId),
-      referralCode,
       ...userData,
       isAdmin: isAdmin,
     },
   });
 
-  return ensureUserHasReferralCode(user);
+  return user;
 }
 
 async function upsertTelegramUserFromPayload(tgUser) {
@@ -382,7 +337,7 @@ async function markAgeVerified(telegramId) {
     },
   });
 
-  return ensureUserHasReferralCode(user);
+  return user;
 }
 
 // Middleware
@@ -768,122 +723,6 @@ app.post("/api/users/age-verify", async (req, res) => {
     });
   } catch (error) {
     console.error(error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Endpoint для передачи реферального коду при першій реєстрації
-app.post("/api/users/apply-referral-code", async (req, res) => {
-  try {
-    const initData = req.body?.initData || req.body?.init_data;
-    const referralCode = req.body?.referral_code ? String(req.body.referral_code).trim().toUpperCase() : null;
-
-    if (!initData || !verifyTelegramData(initData)) {
-      return res.status(401).json({ error: "Invalid initData" });
-    }
-
-    const tgUser = getTelegramUserFromInitData(initData);
-    if (!tgUser?.id) {
-      return res.status(400).json({ error: "Missing Telegram user" });
-    }
-
-    const telegramId = BigInt(tgUser.id);
-    const user = await prisma.user.findUnique({
-      where: { telegramId }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    // Check if user already used a referral code
-    if (user.referralCodeUsed) {
-      return res.status(400).json({ error: "Ви вже використали реферальний код" });
-    }
-
-    // If no code provided, just return success
-    if (!referralCode) {
-      return res.json({ success: true, message: "Ви пропустили реферальний код" });
-    }
-
-    // Find referrer
-    const referrer = await prisma.user.findUnique({
-      where: { referralCode }
-    });
-
-    if (!referrer) {
-      return res.status(400).json({ error: "Неправильний реферальний код" });
-    }
-
-    if (referrer.telegramId === telegramId) {
-      return res.status(400).json({ error: "Не можна використати свій власний код" });
-    }
-
-    // Check if this referrer already rewarded this user
-    const existingReward = await prisma.referralReward.findUnique({
-      where: {
-        referrerTelegramId_referredTelegramId: {
-          referrerTelegramId: referrer.telegramId,
-          referredTelegramId: telegramId
-        }
-      }
-    });
-
-    if (existingReward) {
-      return res.status(400).json({ error: "Ви вже використали цей реферальний код" });
-    }
-
-    // Create referral reward and update user
-    await prisma.referralReward.create({
-      data: {
-        referrerTelegramId: referrer.telegramId,
-        referredTelegramId: telegramId,
-        rewardAmount: 10,
-        status: 'pending'
-      }
-    });
-
-    // Update referrer's reward balance
-    await prisma.user.update({
-      where: { telegramId: referrer.telegramId },
-      data: {
-        referralRewardRemaining: {
-          increment: 10
-        }
-      }
-    });
-
-    // Mark the code as used on the referred user
-    const updatedUser = await prisma.user.update({
-      where: { telegramId },
-      data: {
-        referralCodeUsed: referralCode,
-        referrerTelegramId: referrer.telegramId
-      }
-    });
-
-    // Notify referrer
-    const referredName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.username || `User ${user.telegramId}`;
-    await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: referrer.telegramId.toString(),
-        text: `🎉 <b>Твій друг записався!</b>\n\n👤 ${referredName}\n💰 Ти отримав -10 zł на наступне замовлення!\n\nСпасибо за рекомендацію! 🙌`,
-        parse_mode: 'HTML'
-      })
-    }).catch(err => console.error('Failed to notify referrer:', err));
-
-    res.json({
-      success: true,
-      message: "Реферальний код прийнято!",
-      user: {
-        ...updatedUser,
-        telegramId: updatedUser.telegramId.toString(),
-      }
-    });
-  } catch (error) {
-    console.error('Error applying referral code:', error);
     res.status(500).json({ error: error.message });
   }
 });
@@ -1546,7 +1385,6 @@ app.post("/api/orders", async (req, res) => {
     console.log('✅ User ready:', {
       id: user.id,
       telegramId: user.telegramId.toString(),
-      referralCode: user.referralCode,
     });
 
     const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`;
@@ -1587,57 +1425,16 @@ app.post("/api/orders", async (req, res) => {
       discountAmount = validation.discount;
     }
 
-    // Apply referral rewards on next order
-    let referralDiscount = 0;
-    const pendingRewards = await prisma.referralReward.findMany({
-      where: {
-        referredTelegramId: BigInt(telegram_id),
-        status: 'pending'
-      }
-    });
-
-    if (pendingRewards.length > 0) {
-      // Use the first pending reward
-      const reward = pendingRewards[0];
-      referralDiscount = reward.rewardAmount;
-
-      // Update the reward status to 'used'
-      await prisma.referralReward.update({
-        where: { id: reward.id },
-        data: {
-          status: 'used',
-          usedAt: new Date()
-        }
-      });
-
-      // Decrease the referrer's reward balance
-      await prisma.user.update({
-        where: { telegramId: reward.referrerTelegramId },
-        data: {
-          referralRewardRemaining: {
-            decrement: referralDiscount
-          }
-        }
-      });
-
-      console.log(`✅ Applied referral discount: ${referralDiscount} zl for user ${telegram_id}`);
-    }
-
-    const baseTotal = Math.max(itemsTotal - discountAmount - referralDiscount, 0);
     const deliveryEstimateValue = Number(delivery_estimate);
     const deliveryEstimate = delivery_type === 'delivery' && Number.isFinite(deliveryEstimateValue) && deliveryEstimateValue > 0
       ? deliveryEstimateValue
       : 0;
-    const finalTotal = baseTotal + deliveryEstimate;
+    const finalTotal = Math.max(itemsTotal - discountAmount, 0) + deliveryEstimate;
 
-    // Build admin notes including referral discount
+    // Build admin notes
     let orderAdminNotes = '';
     if (deliveryEstimate > 0) {
       orderAdminNotes = `Delivery fee estimate ${deliveryEstimate.toFixed(2)} zl`;
-    }
-    if (referralDiscount > 0) {
-      const note = `Referral discount applied: -${referralDiscount.toFixed(2)} zl`;
-      orderAdminNotes = orderAdminNotes ? `${orderAdminNotes} | ${note}` : note;
     }
 
     const order = await prisma.order.create({
@@ -1652,7 +1449,7 @@ app.post("/api/orders", async (req, res) => {
         customerNotes: customer_notes || null,
         adminNotes: orderAdminNotes || null,
         promocode: normalizedPromoCode,
-        discountAmount: discountAmount + referralDiscount,
+        discountAmount: discountAmount,
         status: "pending",
       },
     });
@@ -1803,71 +1600,6 @@ app.post("/api/orders", async (req, res) => {
       console.log('✅ Admin notifications sent to all admins');
     } catch (adminNotificationError) {
       console.error('⚠️ Failed to send admin notification:', adminNotificationError);
-    }
-
-    // Process referral code if provided
-    const referralCode = req.body.referral_code ? String(req.body.referral_code).trim().toUpperCase() : null;
-    if (referralCode) {
-      try {
-        // Find referrer by code
-        const referrer = await prisma.user.findUnique({
-          where: { referralCode: referralCode }
-        });
-
-        if (referrer && referrer.telegramId !== BigInt(telegram_id)) {
-          // Check if this referrer hasn't rewarded this user before (uniqueness)
-          const existingReward = await prisma.referralReward.findUnique({
-            where: {
-              referrerTelegramId_referredTelegramId: {
-                referrerTelegramId: referrer.telegramId,
-                referredTelegramId: BigInt(telegram_id)
-              }
-            }
-          });
-
-          if (!existingReward) {
-            // Create referral reward
-            await prisma.referralReward.create({
-              data: {
-                referrerTelegramId: referrer.telegramId,
-                referredTelegramId: BigInt(telegram_id),
-                rewardAmount: 10,
-                status: 'pending'
-              }
-            });
-
-            // Update referrer's reward balance
-            await prisma.user.update({
-              where: { telegramId: referrer.telegramId },
-              data: {
-                referralRewardRemaining: {
-                  increment: 10
-                }
-              }
-            });
-
-            // Notify referrer about reward
-            const referrerName = [referrer.firstName, referrer.lastName].filter(Boolean).join(' ').trim() || referrer.username;
-            await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                chat_id: referrer.telegramId.toString(),
-                text: `🎉 <b>Твій друг зробив перше замовлення!</b>\n\n👤 Передано: замовлення з кодом [${referralCode}]\n💰 Ти отримав -10 zł на наступне замовлення! Це зараз у твоєму балансі.\n\nДякуємо за референальний маркетинг! 🙌`,
-                parse_mode: 'HTML'
-              })
-            }).catch(err => console.error('Failed to notify referrer:', err));
-
-            console.log('✅ Referral reward created for referrer:', referrer.telegramId);
-          } else {
-            console.log('⚠️ Referral already processed for this user pair');
-          }
-        } else if (!referrer) {
-          console.log('⚠️ Invalid referral code:', referralCode);
-        }
-      } catch (referralError) {
-        console.error('⚠️ Error processing referral:', referralError);
-      }
     }
 
     res.status(201).json(orderResponse);
@@ -2190,49 +1922,7 @@ app.put("/api/orders/:orderId/delivery-fee", async (req, res) => {
   }
 });
 
-// Admin: reassign orders from one user to another
-app.post("/api/orders/reassign", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid || req.headers.adminId;
-    if (!isAdminId(adminId)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
 
-    const { fromTelegramId, toTelegramId, orderNumbers } = req.body || {};
-
-    if (!fromTelegramId || !toTelegramId) {
-      return res.status(400).json({ error: "fromTelegramId and toTelegramId are required" });
-    }
-
-    const where = {
-      telegramId: BigInt(fromTelegramId)
-    };
-
-    if (Array.isArray(orderNumbers) && orderNumbers.length > 0) {
-      where.orderNumber = { in: orderNumbers };
-    }
-
-    const result = await prisma.order.updateMany({
-      where,
-      data: { telegramId: BigInt(toTelegramId) }
-    });
-
-    console.log('🔁 Orders reassigned:', {
-      fromTelegramId,
-      toTelegramId,
-      orderNumbersCount: Array.isArray(orderNumbers) ? orderNumbers.length : 0,
-      updatedCount: result.count
-    });
-
-    res.json({
-      message: "Orders reassigned",
-      updatedCount: result.count
-    });
-  } catch (error) {
-    console.error('❌ Error reassigning orders:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
 
 // Видалення замовлення адміном
 app.delete("/api/orders/:orderId", async (req, res) => {
@@ -2632,425 +2322,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Referral system endpoints
-
-// Get user's referral code
-app.get("/api/users/:telegramId/referral-code", async (req, res) => {
-  try {
-    const telegramId = BigInt(req.params.telegramId);
-    const user = await prisma.user.findUnique({
-      where: { telegramId },
-      select: { 
-        referralCode: true, 
-        referralRewardRemaining: true,
-        referrerTelegramId: true,
-        referralCodeUsed: true
-      }
-    });
-
-    if (!user) {
-      return res.status(404).json({ error: "User not found" });
-    }
-
-    let referrerInfo = null;
-    if (user.referrerTelegramId) {
-      const referrer = await prisma.user.findUnique({
-        where: { telegramId: user.referrerTelegramId },
-        select: { 
-          username: true, 
-          firstName: true, 
-          lastName: true,
-          telegramId: true
-        }
-      });
-      
-      if (referrer) {
-        referrerInfo = {
-          telegramId: referrer.telegramId.toString(),
-          name: referrer.username || `${referrer.firstName || ''} ${referrer.lastName || ''}`.trim()
-        };
-      }
-    }
-
-    res.json({
-      referralCode: user.referralCode,
-      rewardRemaining: user.referralRewardRemaining,
-      referrerInfo: referrerInfo,
-      referralCodeUsed: user.referralCodeUsed
-    });
-  } catch (error) {
-    console.error('❌ Error getting referral code:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Get referral history for user (friends referred)
-app.get("/api/referral-rewards/:telegramId", async (req, res) => {
-  try {
-    const telegramId = BigInt(req.params.telegramId);
-
-    // Get rewards where user is the referrer (they invited others)
-    const referrals = await prisma.referralReward.findMany({
-      where: { referrerTelegramId: telegramId },
-      include: {
-        referred: {
-          select: { username: true, firstName: true, lastName: true }
-        }
-      },
-      orderBy: { createdAt: "desc" }
-    });
-
-    const serialized = referrals.map(ref => ({
-      id: ref.id,
-      referredUserName: ref.referred.username || `${ref.referred.firstName} ${ref.referred.lastName}`.trim(),
-      rewardAmount: ref.rewardAmount,
-      status: ref.status,
-      createdAt: ref.createdAt,
-      usedAt: ref.usedAt
-    }));
-
-    res.json(serialized);
-  } catch (error) {
-    console.error('❌ Error getting referral rewards:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Admin endpoint: Get all referral activity
-app.get("/api/admin/referrals", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid || req.headers.adminId;
-    if (!isAdminId(adminId)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-
-    const referrals = await prisma.referralReward.findMany({
-      include: {
-        referrer: {
-          select: { username: true, firstName: true, lastName: true, telegramId: true }
-        },
-        referred: {
-          select: { username: true, firstName: true, lastName: true, telegramId: true }
-        }
-      },
-      orderBy: { createdAt: "desc" }
-    });
-
-    const serialized = referrals.map(ref => ({
-      id: ref.id,
-      referrer: {
-        telegramId: ref.referrer.telegramId.toString(),
-        name: ref.referrer.username || `${ref.referrer.firstName} ${ref.referrer.lastName}`.trim()
-      },
-      referred: {
-        telegramId: ref.referred.telegramId.toString(),
-        name: ref.referred.username || `${ref.referred.firstName} ${ref.referred.lastName}`.trim()
-      },
-      rewardAmount: ref.rewardAmount,
-      status: ref.status,
-      createdAt: ref.createdAt,
-      usedAt: ref.usedAt
-    }));
-
-    res.json(serialized);
-  } catch (error) {
-    console.error('❌ Error getting admin referrals:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Analytics endpoints
-app.get("/api/analytics/out-of-stock", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid;
-    if (!adminId || !isAdminId(adminId.toString())) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    const outOfStock = await prisma.product.findMany({
-      where: {
-        OR: [
-          { inStock: false },
-          { stockQuantity: { lte: 0 } },
-          { stockQuantity: { lt: 2 } }
-        ]
-      },
-      orderBy: { name: "asc" }
-    });
-
-    const products = outOfStock.map(p => {
-      // Extract clean name (remove brand and technical specs)
-      let cleanName = p.name;
-      cleanName = cleanName.replace(/^(ELFLIQ|Chaser|One Hit|Lost Mary|.*?)\s+/i, '').trim();
-      cleanName = cleanName.replace(/\s*\([^)]*\)\s*/g, '').trim();
-      
-      const recommendedOrder = Math.max(5, 10 - p.stockQuantity);
-      
-      return {
-        id: p.id,
-        name: cleanName,
-        originalName: p.name,
-        category: p.category,
-        brand: p.brand || "",
-        price: p.price,
-        lastStockLevel: p.stockQuantity,
-        orderQuantity: recommendedOrder
-      };
-    });
-
-    res.json({ products });
-  } catch (error) {
-    console.error("Error fetching out of stock products:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/analytics/popular", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid;
-    if (!adminId || !isAdminId(adminId.toString())) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    const orders = await prisma.order.findMany({
-      include: { products: true }
-    });
-
-    const productStats = {};
-    const allProducts = await prisma.product.findMany();
-
-    for (const order of orders) {
-      for (const orderProduct of order.products) {
-        if (!productStats[orderProduct.productId]) {
-          const product = allProducts.find(p => p.id === orderProduct.productId);
-          productStats[orderProduct.productId] = {
-            id: orderProduct.productId,
-            name: product?.name || "Unknown",
-            category: product?.category || "Unknown",
-            brand: product?.brand || "",
-            price: product?.price || 0,
-            totalUnitsSold: 0,
-            totalRevenue: 0,
-            orderCount: 0
-          };
-        }
-
-        productStats[orderProduct.productId].totalUnitsSold += orderProduct.quantity;
-        productStats[orderProduct.productId].totalRevenue += orderProduct.price * orderProduct.quantity;
-        productStats[orderProduct.productId].orderCount += 1;
-      }
-    }
-
-    const products = Object.values(productStats)
-      .sort((a, b) => b.totalUnitsSold - a.totalUnitsSold)
-      .slice(0, 50)
-      .map((p, idx) => ({
-        rank: idx + 1,
-        ...p,
-        averagePerOrder: p.orderCount > 0 ? (p.totalUnitsSold / p.orderCount).toFixed(2) : 0
-      }));
-
-    res.json({ products });
-  } catch (error) {
-    console.error("Error fetching popular products:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/analytics/velocity", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid;
-    if (!adminId || !isAdminId(adminId.toString())) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    const orders = await prisma.order.findMany({
-      include: { products: true }
-    });
-
-    const productStats = {};
-    const allProducts = await prisma.product.findMany();
-    const now = new Date();
-
-    for (const order of orders) {
-      for (const orderProduct of order.products) {
-        if (!productStats[orderProduct.productId]) {
-          const product = allProducts.find(p => p.id === orderProduct.productId);
-          productStats[orderProduct.productId] = {
-            id: orderProduct.productId,
-            name: product?.name || "Unknown",
-            category: product?.category || "Unknown",
-            brand: product?.brand || "",
-            price: product?.price || 0,
-            totalUnitsSold: 0,
-            lastOrderDate: null
-          };
-        }
-
-        productStats[orderProduct.productId].totalUnitsSold += orderProduct.quantity;
-        const orderDate = new Date(order.createdAt);
-        if (!productStats[orderProduct.productId].lastOrderDate || orderDate > productStats[orderProduct.productId].lastOrderDate) {
-          productStats[orderProduct.productId].lastOrderDate = orderDate;
-        }
-      }
-    }
-
-    const products = Object.values(productStats)
-      .map(stat => {
-        const daysOnMarket = stat.lastOrderDate ? Math.max(1, (now - new Date(stat.lastOrderDate)) / (1000 * 60 * 60 * 24)) : 0;
-        const velocity = daysOnMarket > 0 ? stat.totalUnitsSold / daysOnMarket : 0;
-        return {
-          ...stat,
-          daysOnMarket: Math.round(daysOnMarket),
-          velocity: parseFloat(velocity.toFixed(2)),
-          estimatedDaysPerUnit: velocity > 0 ? parseFloat((1 / velocity).toFixed(2)) : "N/A"
-        };
-      })
-      .sort((a, b) => b.velocity - a.velocity)
-      .slice(0, 50)
-      .map((p, idx) => ({ rank: idx + 1, ...p }));
-
-    res.json({ products });
-  } catch (error) {
-    console.error("Error fetching product velocity:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/analytics/summary", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid;
-    if (!adminId || !isAdminId(adminId.toString())) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    const allProducts = await prisma.product.findMany();
-    const outOfStockProducts = allProducts.filter(p => !p.inStock || p.stockQuantity === 0);
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    
-    const orders = await prisma.order.findMany();
-    const ordersToday = orders.filter(o => {
-      const orderDate = new Date(o.createdAt);
-      orderDate.setHours(0, 0, 0, 0);
-      return orderDate.getTime() === today.getTime();
-    }).length;
-    
-    const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
-
-    res.json({
-      outOfStockCount: outOfStockProducts.length,
-      totalProductsCount: allProducts.length,
-      ordersToday,
-      totalRevenue: parseFloat(totalRevenue.toFixed(2))
-    });
-  } catch (error) {
-    console.error("Error fetching analytics summary:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/analytics/all", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid;
-    if (!adminId || !isAdminId(adminId.toString())) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    // Fetch all analytics data
-    const outOfStockRes = await fetch(`http://localhost:${config.port}/api/analytics/out-of-stock`, {
-      headers: { adminid: adminId }
-    }).then(r => r.json());
-
-    const popularRes = await fetch(`http://localhost:${config.port}/api/analytics/popular`, {
-      headers: { adminid: adminId }
-    }).then(r => r.json());
-
-    const velocityRes = await fetch(`http://localhost:${config.port}/api/analytics/velocity`, {
-      headers: { adminid: adminId }
-    }).then(r => r.json());
-
-    const summaryRes = await fetch(`http://localhost:${config.port}/api/analytics/summary`, {
-      headers: { adminid: adminId }
-    }).then(r => r.json());
-
-    res.json({
-      generatedAt: new Date().toISOString(),
-      summary: summaryRes,
-      outOfStock: outOfStockRes,
-      popular: popularRes,
-      velocity: velocityRes
-    });
-  } catch (error) {
-    console.error("Error fetching all analytics:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-app.get("/api/analytics/out-of-stock-report", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid;
-    if (!adminId || !isAdminId(adminId.toString())) {
-      return res.status(403).json({ error: "Unauthorized" });
-    }
-
-    // Get products that are out of stock OR have less than 2 items
-    const productsToReport = await prisma.product.findMany({
-      where: {
-        OR: [
-          { inStock: false },
-          { stockQuantity: { lte: 0 } },
-          { stockQuantity: { lt: 2 } }  // Also include products with < 2 items
-        ]
-      },
-      orderBy: { name: "asc" }
-    });
-
-    if (productsToReport.length === 0) {
-      return res.json({ success: true, messagesSent: 0, message: "Немає закінчених товарів" });
-    }
-
-    let messageText = `🔴 <b>ЗАКІНЧИЛОСЬ:</b>\n\n`;
-    
-    productsToReport.forEach(product => {
-      // Calculate recommended order quantity
-      const recommendedOrder = Math.max(5, 10 - product.stockQuantity);
-      
-      messageText += `${product.name} закінчився ${recommendedOrder}шт\n`;
-    });
-
-    const adminIdNum = adminId.toString();
-    let messagesSent = 0;
-
-    try {
-      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: adminIdNum,
-          text: messageText,
-          parse_mode: 'HTML'
-        })
-      });
-      messagesSent = 1;
-    } catch (error) {
-      console.error(`Error sending message:`, error);
-    }
-
-    res.json({ 
-      success: true, 
-      messagesSent,
-      itemsReported: productsToReport.length,
-      message: `Отправлено 1 повідомлення про ${productsToReport.length} товарів`
-    });
-  } catch (error) {
-    console.error("Error generating out of stock report:", error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// Start server or seed
 if (process.argv.includes("--seed")) {
   seed()
     .catch((error) => {
@@ -3063,11 +2334,6 @@ if (process.argv.includes("--seed")) {
     });
 } else {
   const PORT = config.port;
-
-  // Assign missing referral codes on startup
-  assignMissingReferralCodes()
-    .then(() => console.log('✅ Referral codes assigned to all users'))
-    .catch(err => console.error('⚠️ Error assigning referral codes:', err));
 
   app.listen(PORT, () => {
     console.log(`Server running on http://0.0.0.0:${PORT}`);
