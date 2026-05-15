@@ -1633,15 +1633,15 @@ app.post("/api/orders/payment-screenshot", upload.single('photo'), async (req, r
     const caption = `💳 <b>Скріншот оплати від клієнта</b>\n👤 ${clientInfo}${orderInfo}\n\n✅ Перевірте оплату і підтвердіть замовлення.`;
 
     // Відправляємо фото всім адмінам через Telegram
-    const photoFormData = new FormData();
-    const photoBlob = new Blob([file.buffer || require('fs').readFileSync(file.path)], { type: file.mimetype });
-    photoFormData.append('photo', photoBlob, file.originalname || 'screenshot.jpg');
-    photoFormData.append('caption', caption);
-    photoFormData.append('parse_mode', 'HTML');
-
+    const fileBuffer = fs.readFileSync(file.path);
     const adminIds = config.adminIds;
     for (const adminId of adminIds) {
-      photoFormData.set('chat_id', String(adminId));
+      const photoFormData = new FormData();
+      const photoBlob = new Blob([fileBuffer], { type: file.mimetype });
+      photoFormData.append('photo', photoBlob, file.originalname || 'screenshot.jpg');
+      photoFormData.append('chat_id', String(adminId));
+      photoFormData.append('caption', caption);
+      photoFormData.append('parse_mode', 'HTML');
       await fetch(`https://api.telegram.org/bot${config.botToken}/sendPhoto`, {
         method: 'POST',
         body: photoFormData
@@ -1649,7 +1649,7 @@ app.post("/api/orders/payment-screenshot", upload.single('photo'), async (req, r
     }
 
     // Видаляємо тимчасовий файл
-    try { require('fs').unlinkSync(file.path); } catch(e) {}
+    try { fs.unlinkSync(file.path); } catch(e) {}
 
     // Підтверджуємо клієнту
     await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
@@ -1681,23 +1681,40 @@ app.get("/api/orders/user/:telegramId", async (req, res) => {
 
     console.log(`📦 Found ${orders.length} orders for telegramId: ${telegramId}`);
 
-    // Serialize BigInt values
-    const serializedOrders = orders.map(order => ({
-      id: order.id,
-      telegramId: order.telegramId.toString(),
-      orderNumber: order.orderNumber,
-      items: order.items,
-      totalPrice: order.totalPrice,
-      paymentMethod: order.paymentMethod,
-      deliveryAddress: order.deliveryAddress,
-      pickupLocation: order.pickupLocation,
-      customerNotes: order.customerNotes,
-      status: order.status,
-      isPaid: order.isPaid || false,
-      createdAt: order.createdAt,
+    // Збагачуємо items даними про товари (imageUrl, emoji)
+    const enrichedOrders = await Promise.all(orders.map(async order => {
+      let enrichedItems = order.items;
+      try {
+        const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]');
+        enrichedItems = await Promise.all(items.map(async item => {
+          const pid = item.product_id || item.productId;
+          if (!pid) return item;
+          const product = await prisma.product.findUnique({ where: { id: pid } });
+          return {
+            ...item,
+            name: item.name || product?.name || `Товар #${pid}`,
+            imageUrl: product?.imageUrl || null,
+            emoji: product?.emoji || null
+          };
+        }));
+      } catch(e) {}
+      return {
+        id: order.id,
+        telegramId: order.telegramId.toString(),
+        orderNumber: order.orderNumber,
+        items: enrichedItems,
+        totalPrice: order.totalPrice,
+        paymentMethod: order.paymentMethod,
+        deliveryAddress: order.deliveryAddress,
+        pickupLocation: order.pickupLocation,
+        customerNotes: order.customerNotes,
+        status: order.status,
+        isPaid: order.isPaid || false,
+        createdAt: order.createdAt,
+      };
     }));
 
-    res.json(serializedOrders);
+    res.json(enrichedOrders);
   } catch (error) {
     console.error('❌ Error getting orders:', error);
     res.status(500).json({ error: error.message });
@@ -1712,10 +1729,24 @@ app.get("/api/orders/admin/all", async (req, res) => {
     }
 
     const orders = await prisma.order.findMany({
-      include: { products: true },
+      include: { products: true, user: true },
       orderBy: { createdAt: "desc" },
     });
-    res.json(orders);
+
+    // Серіалізуємо BigInt і додаємо дані юзера
+    const serialized = orders.map(o => ({
+      ...o,
+      telegramId: o.telegramId.toString(),
+      isPaid: o.isPaid || false,
+      user: o.user ? {
+        firstName: o.user.firstName,
+        lastName: o.user.lastName,
+        username: o.user.username,
+        telegramId: o.user.telegramId.toString()
+      } : null
+    }));
+
+    res.json(serialized);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

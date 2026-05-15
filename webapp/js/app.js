@@ -1318,6 +1318,16 @@ async function loadAdminOrders() {
             const orderId = order.id;
             const telegramId = order.telegramId || order.telegram_id;
 
+            // Ім'я клієнта
+            const u = order.user;
+            const clientName = u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || `ID: ${telegramId}` : `ID: ${telegramId}`;
+            const clientUsername = u?.username ? `@${u.username}` : null;
+            const clientDisplay = clientUsername ? `${clientName} (${clientUsername})` : clientName;
+            // Посилання на чат через tg://
+            const clientLink = telegramId
+                ? `<a href="tg://user?id=${telegramId}" style="color:#4a90e2;text-decoration:none;font-weight:600;">${clientDisplay}</a>`
+                : clientDisplay;
+
             // Колір рамки і бейджа
             const borderColor = isPaid ? '#27ae60' : '#e74c3c';
             const statusBg = isPaid ? 'rgba(39,174,96,0.1)' : 'rgba(231,76,60,0.08)';
@@ -1360,8 +1370,8 @@ async function loadAdminOrders() {
                 </div>
                 <div style="padding:12px 14px;">
                     <div style="font-size:12px;color:var(--text-light);margin-bottom:8px;">
-                        👤 ID: <b>${telegramId}</b>
-                        ${telegramId ? `<button onclick="showClientDetails('${telegramId}')" style="margin-left:6px;padding:3px 8px;background:#4a90e2;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">Клієнт</button>` : ''}
+                        👤 ${clientLink}
+                        ${telegramId ? `<button onclick="window.open('tg://user?id=${telegramId}','_blank')" style="margin-left:6px;padding:3px 8px;background:#4a90e2;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">💬 Написати</button>` : ''}
                     </div>
                     <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:8px;">${itemsHtml}</div>
                     <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -2516,9 +2526,15 @@ window.loadOrderHistory = async function () {
                 const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]');
                 itemsHtml = items.map(item => {
                     const name = item.name || `Товар #${item.product_id}`;
-                    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-                        <span>${name} x${item.quantity}</span>
-                        <span style="font-weight:600;">${(item.price * item.quantity).toFixed(2)} грн</span>
+                    const imgHtml = item.imageUrl && !item.imageUrl.includes('placeholder.com')
+                        ? `<img src="${item.imageUrl}" style="width:40px;height:40px;object-fit:cover;border-radius:8px;margin-right:8px;flex-shrink:0;" onerror="this.style.display='none'">`
+                        : `<span style="font-size:24px;margin-right:8px;">${item.emoji || '📦'}</span>`;
+                    return `<div style="display:flex;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+                        ${imgHtml}
+                        <div style="flex:1;">
+                            <div style="font-size:13px;font-weight:600;">${name}</div>
+                            <div style="font-size:12px;color:var(--text-light);">x${item.quantity} — ${(item.price * item.quantity).toFixed(2)} грн</div>
+                        </div>
                     </div>`;
                 }).join('');
             } catch(e) {}
