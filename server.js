@@ -350,6 +350,28 @@ app.use("/static", express.static(path.join(__dirname, "webapp")));
 app.use("/webapp", express.static(path.join(__dirname, "webapp")));
 app.use("/uploads", express.static(uploadsDir));
 
+// Зворотна сумісність: /uploads/:filename -> /api/images/:filename
+app.get("/uploads/:filename", async (req, res) => {
+  try {
+    const image = await prisma.image.findUnique({
+      where: { filename: req.params.filename }
+    });
+    if (image) {
+      res.set('Content-Type', image.mimeType);
+      res.set('Cache-Control', 'public, max-age=31536000');
+      return res.send(image.data);
+    }
+    // Якщо не в БД — спробуємо файлову систему
+    const filePath = path.join(uploadsDir, req.params.filename);
+    if (fs.existsSync(filePath)) {
+      return res.sendFile(filePath);
+    }
+    res.status(404).json({ error: "Image not found" });
+  } catch(e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Health check
 app.get("/", (req, res) => {
   res.json({
@@ -2346,29 +2368,49 @@ app.post("/api/promos/apply", async (req, res) => {
   }
 });
 
-// File upload endpoint
-app.post("/api/upload", upload.single('image'), (req, res) => {
+// File upload endpoint — зберігає фото в PostgreSQL
+app.post("/api/upload", upload.single('image'), async (req, res) => {
   try {
-    console.log('📸 Upload request received');
-    console.log('File:', req.file);
-    console.log('Body:', req.body);
-
     if (!req.file) {
-      console.error('❌ No file in request');
       return res.status(400).json({ error: "No file uploaded" });
     }
 
-    // Повний URL з доменом
-    const fileUrl = `${config.backendUrl}/uploads/${req.file.filename}`;
-    console.log('✅ File uploaded successfully:', fileUrl);
-    res.json({
-      success: true,
-      filename: req.file.filename,
-      url: fileUrl,
-      path: fileUrl
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const filename = req.file.filename;
+    const mimeType = req.file.mimetype;
+
+    // Зберігаємо в БД
+    await prisma.image.upsert({
+      where: { filename },
+      update: { data: fileBuffer, mimeType },
+      create: { filename, mimeType, data: fileBuffer }
     });
+
+    // Видаляємо тимчасовий файл
+    try { fs.unlinkSync(req.file.path); } catch(e) {}
+
+    const fileUrl = `${config.backendUrl}/api/images/${filename}`;
+    console.log('✅ Image saved to DB:', filename);
+    res.json({ success: true, filename, url: fileUrl, path: fileUrl });
   } catch (error) {
     console.error('❌ Upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint для отримання зображення з БД
+app.get("/api/images/:filename", async (req, res) => {
+  try {
+    const image = await prisma.image.findUnique({
+      where: { filename: req.params.filename }
+    });
+    if (!image) {
+      return res.status(404).json({ error: "Image not found" });
+    }
+    res.set('Content-Type', image.mimeType);
+    res.set('Cache-Control', 'public, max-age=31536000');
+    res.send(image.data);
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

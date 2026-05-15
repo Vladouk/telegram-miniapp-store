@@ -81,6 +81,16 @@ model Order {
   @@index([orderNumber])
 }
 
+model Image {
+  id        Int      @id @default(autoincrement())
+  filename  String   @unique
+  mimeType  String
+  data      Bytes
+  createdAt DateTime @default(now())
+
+  @@index([filename])
+}
+
 model OrderProduct {
   id        Int @id @default(autoincrement())
   orderId   Int
