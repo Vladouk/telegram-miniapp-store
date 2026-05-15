@@ -161,6 +161,11 @@ document.addEventListener('DOMContentLoaded', async () => {
     await products.loadProducts();
     products.renderProducts();
 
+    // Render dynamic category menu from CONFIG
+    if (typeof renderCategoryMenu === 'function') {
+        renderCategoryMenu();
+    }
+
     // Оновлення UI кошика
     cart.updateCartUI();
 
@@ -230,6 +235,74 @@ function setupEventListeners() {
         }
     });
 }
+
+// Render category menu in catalog page based on CONFIG.CATEGORIES
+function renderCategoryMenu() {
+    try {
+        const container = document.getElementById('categoryMenu');
+        if (!container || !Array.isArray(CONFIG.CATEGORIES)) return;
+
+        container.innerHTML = CONFIG.CATEGORIES.map(cat => {
+            const subtitle = Array.isArray(cat.subcats) && cat.subcats.length ? cat.subcats[0] : '';
+            return `
+                <div class="menu-item-large" onclick="selectCategory('${cat.id}')">
+                    <div class="menu-icon-large">${cat.emoji || ''}</div>
+                    <h3>${cat.name}</h3>
+                    <p>${subtitle}</p>
+                </div>
+            `;
+        }).join('');
+    } catch (e) {
+        console.error('renderCategoryMenu error:', e);
+    }
+}
+
+// Populate admin product category select when admin form is rendered
+function populateAdminCategorySelect() {
+    try {
+        const sel = document.getElementById('adminProductCategory');
+        if (!sel || !Array.isArray(CONFIG.CATEGORIES)) return;
+
+        // Clear existing options except the first placeholder
+        const placeholder = sel.querySelector('option[value=""]');
+        sel.innerHTML = '';
+        sel.appendChild(placeholder || document.createElement('option'));
+        if (!placeholder) {
+            sel.children[0].value = '';
+            sel.children[0].textContent = '-- Вибери категорію --';
+        }
+
+        CONFIG.CATEGORIES.forEach(cat => {
+            const opt = document.createElement('option');
+            opt.value = cat.id;
+            opt.textContent = `${cat.emoji ? cat.emoji + ' ' : ''}${cat.name}`;
+            sel.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('populateAdminCategorySelect error:', e);
+    }
+}
+
+// Observe adminContent to populate admin selects when admin tabs are rendered
+function observeAdminContentForForms() {
+    const adminContent = document.getElementById('adminContent');
+    if (!adminContent || typeof MutationObserver === 'undefined') return;
+    const mo = new MutationObserver((mutations) => {
+        for (const m of mutations) {
+            if (m.addedNodes && m.addedNodes.length) {
+                if (document.getElementById('adminProductCategory')) {
+                    populateAdminCategorySelect();
+                }
+            }
+        }
+    });
+    mo.observe(adminContent, { childList: true, subtree: true });
+}
+
+// Start observing adminContent after DOM ready
+document.addEventListener('DOMContentLoaded', () => {
+    observeAdminContentForForms();
+});
 
 window.navigateTo = function (page) {
     // Приховування всіх сторінок
@@ -874,16 +947,23 @@ async function loadAdminStats() {
 
 window.toggleBrandField = function () {
     const category = document.getElementById('adminProductCategory').value;
-    const brandFieldGroup = document.getElementById('brandFieldGroup');
-    const brandSelect = document.getElementById('adminProductBrand');
-
-    if (category === 'рідина') {
-        brandFieldGroup.style.display = 'block';
-        brandSelect.required = true;
+    const subcategoryGroup = document.getElementById('subcategoryGroup');
+    
+    // Для всіх категорій показуємо поле підкатегорії
+    if (category) {
+        subcategoryGroup.style.display = 'block';
+        
+        // Заповнюємо список підкатегорій на основі вибраної категорії
+        const selectedCat = CONFIG.CATEGORIES.find(c => c.id === category);
+        const subcategorySelect = document.getElementById('adminProductSubcategory');
+        
+        if (selectedCat && selectedCat.subcats) {
+            subcategorySelect.innerHTML = `<option value="">-- Вибери підкатегорію --</option>` +
+                selectedCat.subcats.map(sub => `<option value="${sub}">${sub}</option>`).join('');
+            subcategorySelect.required = true;
+        }
     } else {
-        brandFieldGroup.style.display = 'none';
-        brandSelect.required = false;
-        brandSelect.value = '';
+        subcategoryGroup.style.display = 'none';
     }
 }
 
@@ -891,20 +971,15 @@ window.addNewProduct = async function () {
     const name = document.getElementById('adminProductName').value.trim();
     const price = parseFloat(document.getElementById('adminProductPrice').value);
     const category = document.getElementById('adminProductCategory').value;
-    const brand = document.getElementById('adminProductBrand').value;
+    const subcategory = document.getElementById('adminProductSubcategory').value;
     const emoji = document.getElementById('adminProductEmoji').value.trim();
     const imageUrl = document.getElementById('adminProductImageUrl').value.trim();
     const imageFile = document.getElementById('adminProductImageFile').files[0];
     const stockQuantity = parseInt(document.getElementById('adminProductStock').value) || 0;
     const description = document.getElementById('adminProductDesc').value.trim();
 
-    if (!name || !price || !category || !description) {
+    if (!name || !price || !category || !subcategory || !description) {
         showToast('Заповни всі поля!');
-        return;
-    }
-
-    if (category === 'рідина' && !brand) {
-        showToast('Вибери бренд для рідини!');
         return;
     }
 
@@ -942,17 +1017,18 @@ window.addNewProduct = async function () {
             finalImageUrl = uploadData.url;
         }
 
+        const selectedCat = CONFIG.CATEGORIES.find(c => c.id === category);
+        const finalEmoji = emoji || selectedCat?.emoji || '📦';
+
         const newProduct = await apiCall('POST', '/products', {
             name,
             price,
-            category,
-            brand: category === 'рідина' ? brand : null,
-            emoji: emoji || (category === 'одноразки' ? '⚡' : '💨'),
+            category: selectedCat?.name || category,
+            subcategory,
+            emoji: finalEmoji,
             image_url: finalImageUrl,
             stock_quantity: stockQuantity,
             description,
-            nicotine_free: false,
-            flavor_profile: name,
             in_stock: true
         });
 
@@ -963,14 +1039,14 @@ window.addNewProduct = async function () {
         document.getElementById('adminProductName').value = '';
         document.getElementById('adminProductPrice').value = '';
         document.getElementById('adminProductCategory').value = '';
-        document.getElementById('adminProductBrand').value = '';
+        document.getElementById('adminProductSubcategory').value = '';
         document.getElementById('adminProductEmoji').value = '';
         document.getElementById('adminProductImageUrl').value = '';
         document.getElementById('adminProductImageFile').value = '';
         document.getElementById('adminProductStock').value = '';
         document.getElementById('adminProductDesc').value = '';
         document.getElementById('previewImage').innerHTML = '';
-        document.getElementById('brandFieldGroup').style.display = 'none';
+        document.getElementById('subcategoryGroup').style.display = 'none';
 
         showAdminTab('products');
     } catch (error) {
@@ -1472,45 +1548,36 @@ window.exportClientsToBot = async function () {
     }
 }
 
-// Функції для меню каталогу з вибором категорії та бренду
-window.selectCategory = function (category) {
+// Функції для меню каталогу з вибором категорії
+window.selectCategory = function (categoryId) {
     const categoryMenu = document.getElementById('categoryMenu');
-    const brandMenu = document.getElementById('brandMenu');
     const productsView = document.getElementById('productsView');
 
-    if (category === 'одноразки') {
-        // Для одноразок сразу показуємо товари
-        categoryMenu.style.display = 'none';
-        brandMenu.classList.add('brand-menu-hidden');
-        productsView.classList.remove('products-view-hidden');
-        const filtered = products.products.filter(p => p.category === 'одноразки');
-        const finalList = filtered.length ? filtered : products.products;
-        products.filteredProducts = products.sortByAvailability(finalList);
-        products.renderProducts();
-    } else if (category === 'рідина') {
-        // Для рідини показуємо меню вибору бренду
-        categoryMenu.style.display = 'none';
-        brandMenu.classList.remove('brand-menu-hidden');
-        productsView.classList.add('products-view-hidden');
+    // Знаходимо категорію в CONFIG
+    const category = CONFIG.CATEGORIES.find(c => c.id === categoryId);
+    if (!category) {
+        console.error('Category not found:', categoryId);
+        return;
     }
-}
-
-window.selectBrand = function (brand) {
-    const categoryMenu = document.getElementById('categoryMenu');
-    const brandMenu = document.getElementById('brandMenu');
-    const productsView = document.getElementById('productsView');
 
     categoryMenu.style.display = 'none';
-    brandMenu.classList.add('brand-menu-hidden');
     productsView.classList.remove('products-view-hidden');
 
-    // Фільтруємо товари по категорії та бренду
-    const brandMapping = {
-        'elfliq': 'ELFLIQ'
-    };
+    // Фільтруємо товари по категорії
+    const filtered = products.products.filter(p => 
+        p.category === category.name || p.category === categoryId
+    );
+    const finalList = filtered.length ? filtered : products.products;
+    products.filteredProducts = products.sortByAvailability(finalList);
+    products.renderProducts();
+}
 
-    const filtered = products.products.filter(p =>
-        p.category === 'рідина' && p.brand === brandMapping[brand]
+window.selectSubcategory = function (subcategory) {
+    const productsView = document.getElementById('productsView');
+    
+    // Фільтруємо товари по підкатегорії
+    const filtered = products.products.filter(p => 
+        p.subcategory === subcategory || p.brand === subcategory
     );
     const finalList = filtered.length ? filtered : products.products;
     products.filteredProducts = products.sortByAvailability(finalList);
@@ -1519,73 +1586,17 @@ window.selectBrand = function (brand) {
 
 window.goBackToCategory = function () {
     const categoryMenu = document.getElementById('categoryMenu');
-    const brandMenu = document.getElementById('brandMenu');
     const productsView = document.getElementById('productsView');
 
-    if (!brandMenu.classList.contains('brand-menu-hidden')) {
-        // З меню брендів у меню категорій
-        brandMenu.classList.add('brand-menu-hidden');
-        categoryMenu.style.display = 'grid';
-        productsView.classList.add('products-view-hidden');
-    } else {
-        // З списку товарів у меню категорій або брендів
-        productsView.classList.add('products-view-hidden');
-        categoryMenu.style.display = 'grid';
-    }
-}
-
-// Завантаження клієнтів для селекту в повідомленнях
-window.loadClientsForMessages = async function () {
-    try {
-        const url = CONFIG.API_URL + '/users/all';
-        const adminHeaders = getAdminHeaders();
-        const response = await axios.get(url, { headers: adminHeaders });
-        const clients = response.data;
-
-        const select = document.getElementById('messageClientSelect');
-        if (!select) return;
-
-        if (!clients || clients.length === 0) {
-            select.innerHTML = '<option value="">-- Немає клієнтів --</option>';
-            return;
-        }
-
-        // Сортуємо клієнтів за кількістю замовлень
-        clients.sort((a, b) => (b.orders?.length || 0) - (a.orders?.length || 0));
-
-        select.innerHTML = '<option value="">-- Виберіть клієнта --</option>' +
-            clients.map(client => {
-                const username = client.username ? `@${client.username}` : '';
-                const firstName = client.first_name || client.firstName || 'Невідомий';
-                const ordersCount = client.orders?.length || 0;
-
-                return `<option value="${client.telegramId}">
-                    ${firstName} ${username} (${client.telegramId}) - ${ordersCount} замовлень
-                </option>`;
-            }).join('');
-    } catch (error) {
-        console.error('Error loading clients:', error);
-        const select = document.getElementById('messageClientSelect');
-        if (select) {
-            select.innerHTML = '<option value="">-- Помилка завантаження --</option>';
-        }
-    }
-}
-
-// Вибір клієнта зі списку
-window.selectClient = function (telegramId) {
-    if (telegramId) {
-        document.getElementById('messageClientId').value = telegramId;
-    }
+    productsView.classList.add('products-view-hidden');
+    categoryMenu.style.display = 'grid';
 }
 
 window.goBackToCatalog = function () {
     const categoryMenu = document.getElementById('categoryMenu');
-    const brandMenu = document.getElementById('brandMenu');
     const productsView = document.getElementById('productsView');
 
     categoryMenu.style.display = 'grid';
-    brandMenu.classList.add('brand-menu-hidden');
     productsView.classList.add('products-view-hidden');
 }
 
