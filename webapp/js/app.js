@@ -423,24 +423,61 @@ window.renderAdminProductsList = function (page) {
             const row = document.createElement('div');
             row.style.cssText = 'background:var(--light);padding:12px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;';
 
-            const imgHtml = p.imageUrl
-                ? `<img loading="lazy" src="${p.imageUrl}" style="width:50px;height:50px;object-fit:cover;border-radius:8px;margin-right:10px;vertical-align:middle;cursor:pointer;" onclick="editProductImage(${p.id})" onerror="this.style.display='none'">`
-                : `<div style="width:50px;height:50px;background:var(--bg);border-radius:8px;margin-right:10px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;vertical-align:middle;" onclick="editProductImage(${p.id})">${p.emoji || '📦'}</div>`;
+            // Ліва частина
+            const left = document.createElement('div');
+            left.style.flex = '1';
 
-            row.innerHTML = `
-                <div style="flex:1;">
-                    ${imgHtml}
-                    <strong>${p.emoji ? p.emoji + ' ' : '📦 '}${p.name}</strong>
-                    <div style="font-size:12px;color:var(--text-light);">
-                        ${p.price} zł | ${p.category}${p.brand ? ' | ' + p.brand : ''}
-                        <br>📦 На складі: <strong style="color:${p.stockQuantity > 0 ? 'green' : 'red'};">${p.stockQuantity} шт.</strong>
-                    </div>
-                </div>
-                <div style="display:flex;gap:8px;align-items:center;">
-                    <input type="number" value="${p.stockQuantity}" min="0" oninput="updateStock(${p.id}, this.value)" style="width:70px;padding:6px;border:1px solid var(--border);border-radius:6px;text-align:center;">
-                    <button onclick="deleteProduct(${p.id})" class="btn-small" style="background:#ff6b6b;">🗑️</button>
-                </div>
-            `;
+            // Зображення або емодзі
+            if (p.imageUrl) {
+                const img = document.createElement('img');
+                img.loading = 'lazy';
+                img.src = p.imageUrl;
+                img.style.cssText = 'width:50px;height:50px;object-fit:cover;border-radius:8px;margin-right:10px;vertical-align:middle;cursor:pointer;';
+                img.onclick = () => editProductImage(p.id);
+                img.onerror = function() { this.style.display = 'none'; };
+                left.appendChild(img);
+            } else {
+                const emojiDiv = document.createElement('div');
+                emojiDiv.style.cssText = 'width:50px;height:50px;background:var(--bg);border-radius:8px;margin-right:10px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;vertical-align:middle;';
+                emojiDiv.textContent = p.emoji || '📦';
+                emojiDiv.onclick = () => editProductImage(p.id);
+                left.appendChild(emojiDiv);
+            }
+
+            // Назва
+            const nameEl = document.createElement('strong');
+            nameEl.textContent = (p.emoji ? p.emoji + ' ' : '📦 ') + p.name;
+            left.appendChild(nameEl);
+
+            // Мета-інфо
+            const meta = document.createElement('div');
+            meta.style.cssText = 'font-size:12px;color:var(--text-light);';
+            const stockColor = p.stockQuantity > 0 ? 'green' : 'red';
+            meta.innerHTML = `${p.price} zł | ${p.category}${p.brand ? ' | ' + p.brand : ''}<br>📦 На складі: <strong style="color:${stockColor};">${p.stockQuantity} шт.</strong>`;
+            left.appendChild(meta);
+
+            // Права частина
+            const right = document.createElement('div');
+            right.style.cssText = 'display:flex;gap:8px;align-items:center;';
+
+            const stockInput = document.createElement('input');
+            stockInput.type = 'number';
+            stockInput.value = p.stockQuantity;
+            stockInput.min = '0';
+            stockInput.style.cssText = 'width:70px;padding:6px;border:1px solid var(--border);border-radius:6px;text-align:center;';
+            stockInput.oninput = function() { updateStock(p.id, this.value); };
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'btn-small';
+            delBtn.style.background = '#ff6b6b';
+            delBtn.textContent = '🗑️';
+            delBtn.onclick = () => deleteProduct(p.id);
+
+            right.appendChild(stockInput);
+            right.appendChild(delBtn);
+
+            row.appendChild(left);
+            row.appendChild(right);
             fragment.appendChild(row);
         });
         productsList.innerHTML = '';
@@ -621,7 +658,7 @@ window.showAdminTab = function (tab) {
                 <form style="background: var(--light); padding: 24px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
                     <div class="form-group">
                         <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📝 Назва товару:</label>
-                        <input type="text" id="adminProductName" placeholder="Наприклад: ELFLIQ Полуниця" required style="font-size: 16px; padding: 14px;" autofocus>
+                        <input type="text" id="adminProductName" placeholder="Наприклад: ELFLIQ Полуниця" required style="font-size: 16px; padding: 14px;">
                     </div>
                     <div class="form-group">
                         <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">💰 Ціна (zł):</label>
