@@ -685,8 +685,14 @@ window.showAdminTab = function (tab) {
             '<select id="adminProductSubcategory" style="font-size:16px;padding:14px;"><option value="">-- Вибери підкатегорію --</option></select></div>',
             '<div class="form-group"><label style="font-size:15px;font-weight:600;">Емодзі (необов\'язково):</label>',
             '<input type="text" id="adminProductEmoji" placeholder="🍓" maxlength="2" style="font-size:20px;padding:14px;text-align:center;"></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">URL фото (необов\'язково):</label>',
-            '<input type="url" id="adminProductImageUrl" placeholder="https://example.com/image.jpg" style="font-size:14px;padding:14px;"></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Фото товару (необов\'язково):</label>',
+            '<div id="adminPhotoPreview" style="display:none;margin-bottom:10px;"><img id="adminPhotoPreviewImg" style="max-width:100%;max-height:200px;border-radius:10px;object-fit:cover;"></div>',
+            '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">',
+            '<label style="flex:1;min-width:120px;padding:12px;background:var(--secondary);color:#fff;border-radius:999px;text-align:center;cursor:pointer;font-size:14px;font-weight:600;">📷 Камера<input type="file" id="adminProductImageCamera" accept="image/*" capture="environment" style="display:none;" onchange="handleAdminPhotoSelect(this)"></label>',
+            '<label style="flex:1;min-width:120px;padding:12px;background:var(--light);border:1px solid var(--border);border-radius:999px;text-align:center;cursor:pointer;font-size:14px;font-weight:600;">🖼️ Галерея<input type="file" id="adminProductImageFile" accept="image/*" style="display:none;" onchange="handleAdminPhotoSelect(this)"></label>',
+            '</div>',
+            '<input type="url" id="adminProductImageUrl" placeholder="або вставте URL фото..." style="font-size:14px;padding:12px;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;">',
+            '<small style="display:block;margin-top:6px;color:var(--text-light);font-size:12px;">Зробіть фото, виберіть з галереї або вставте посилання</small></div>',
             '<div class="form-group"><label style="font-size:15px;font-weight:600;">Кількість товару:</label>',
             '<input type="number" id="adminProductStock" placeholder="50" min="0" style="font-size:16px;padding:14px;"></div>',
             '<div class="form-group"><label style="font-size:15px;font-weight:600;">Опис:</label>',
@@ -1038,6 +1044,27 @@ window.toggleBrandField = function () {
     }
 }
 
+// Обробка вибору фото (камера або галерея)
+window.handleAdminPhotoSelect = function (input) {
+    const file = input.files[0];
+    if (!file) return;
+
+    // Показуємо прев'ю
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const preview = document.getElementById('adminPhotoPreview');
+        const previewImg = document.getElementById('adminPhotoPreviewImg');
+        if (preview && previewImg) {
+            previewImg.src = e.target.result;
+            preview.style.display = 'block';
+        }
+        // Очищаємо URL поле якщо вибрали файл
+        const urlInput = document.getElementById('adminProductImageUrl');
+        if (urlInput) urlInput.value = '';
+    };
+    reader.readAsDataURL(file);
+}
+
 window.addNewProduct = async function () {
     const name = document.getElementById('adminProductName').value.trim();
     const price = parseFloat(document.getElementById('adminProductPrice').value);
@@ -1045,7 +1072,10 @@ window.addNewProduct = async function () {
     const subcategory = document.getElementById('adminProductSubcategory').value;
     const emoji = document.getElementById('adminProductEmoji').value.trim();
     const imageUrl = document.getElementById('adminProductImageUrl').value.trim();
-    const imageFile = document.getElementById('adminProductImageFile') ? document.getElementById('adminProductImageFile').files[0] : null;
+    // Беремо файл з камери або галереї (перевіряємо обидва input)
+    const cameraInput = document.getElementById('adminProductImageCamera');
+    const galleryInput = document.getElementById('adminProductImageFile');
+    const imageFile = (cameraInput && cameraInput.files[0]) || (galleryInput && galleryInput.files[0]) || null;
     const stockQuantity = parseInt(document.getElementById('adminProductStock').value) || 0;
     const description = document.getElementById('adminProductDesc').value.trim();
 
@@ -1115,10 +1145,12 @@ window.addNewProduct = async function () {
         document.getElementById('adminProductImageUrl').value = '';
         const imgFileEl = document.getElementById('adminProductImageFile');
         if (imgFileEl) imgFileEl.value = '';
+        const imgCamEl = document.getElementById('adminProductImageCamera');
+        if (imgCamEl) imgCamEl.value = '';
+        const previewEl = document.getElementById('adminPhotoPreview');
+        if (previewEl) previewEl.style.display = 'none';
         document.getElementById('adminProductStock').value = '';
         document.getElementById('adminProductDesc').value = '';
-        const previewEl = document.getElementById('previewImage');
-        if (previewEl) previewEl.innerHTML = '';
         document.getElementById('subcategoryGroup').style.display = 'none';
 
         showAdminTab('products');
