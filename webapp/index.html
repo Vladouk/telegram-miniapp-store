@@ -361,6 +361,10 @@
                     <div class="add-product-sheet__field">
                         <label>Назва товару</label>
                         <input type="text" id="adminProductName" placeholder="Наприклад: Кавоварка Philips">
+                        <button type="button" onclick="aiDescribeProduct()" id="aiBtnDescribe" style="margin-top:8px;width:100%;padding:11px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:6px;">
+                            ✨ Згенерувати опис через AI
+                        </button>
+                        <div id="aiStatus" style="font-size:12px;text-align:center;margin-top:6px;color:var(--text-light);display:none;"></div>
                     </div>
                     <div class="add-product-sheet__field">
                         <label>Ціна (zł)</label>
@@ -433,7 +437,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260515-1"></script>
-    <script src="js/app.js?v=20260515-17"></script>
+    <script src="js/app.js?v=20260515-18"></script>
 </body>
 
 </html>

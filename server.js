@@ -18,7 +18,7 @@ dotenv.config();
 const config = {
   botToken: process.env.BOT_TOKEN?.trim(),
   adminId: process.env.ADMIN_ID,
-  adminIds: process.env.ADMIN_ID?.split(',').map(id => id.trim()).filter(Boolean) || [], // Parse as array
+  adminIds: process.env.ADMIN_ID?.split(',').map(id => id.trim()).filter(Boolean) || [],
   secretKey: process.env.SECRET_KEY || "dev-secret-key",
   backendUrl: (process.env.BACKEND_URL || "http://localhost:8000").trim(),
   webhookUrl: process.env.WEBHOOK_URL?.trim() || `${process.env.BACKEND_URL || "http://localhost:8000"}/api/bot/webhook`,
@@ -31,6 +31,7 @@ const config = {
   logLevel: process.env.LOG_LEVEL || "info",
   port: parseInt(process.env.PORT || "8000", 10),
   databaseUrl: process.env.DATABASE_URL,
+  openaiApiKey: process.env.OPENAI_API_KEY || null,
 };
 
 const prisma = new PrismaClient();
@@ -2432,6 +2433,76 @@ app.get("/api/images/:filename", async (req, res) => {
     res.set('Cache-Control', 'public, max-age=31536000');
     res.send(image.data);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI: генерація опису товару і пошук ціни
+app.post("/api/ai/describe-product", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    if (!config.openaiApiKey) {
+      return res.status(503).json({ error: "OpenAI API key not configured" });
+    }
+
+    const { name, category } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: "Product name is required" });
+    }
+
+    const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
+Товар: "${name}"${category ? `, категорія: "${category}"` : ''}.
+
+Дай відповідь у форматі JSON:
+{
+  "description": "короткий опис товару українською (2-3 речення, що це, для чого, переваги)",
+  "priceMin": число (мінімальна ціна в грн на польському ринку),
+  "priceMax": число (максимальна ціна в грн на польському ринку),
+  "emoji": "одне підходяще емодзі"
+}
+
+Тільки JSON, без пояснень.`;
+
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${config.openaiApiKey}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 300,
+        temperature: 0.7
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || `OpenAI error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim();
+
+    // Парсимо JSON з відповіді
+    const jsonMatch = content.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Invalid AI response format");
+
+    const result = JSON.parse(jsonMatch[0]);
+    res.json({
+      description: result.description || '',
+      priceMin: result.priceMin || null,
+      priceMax: result.priceMax || null,
+      emoji: result.emoji || '📦',
+      suggestedPrice: result.priceMin ? Math.round((result.priceMin + result.priceMax) / 2) : null
+    });
+  } catch (error) {
+    console.error('AI describe error:', error);
     res.status(500).json({ error: error.message });
   }
 });

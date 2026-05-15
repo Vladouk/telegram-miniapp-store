@@ -2431,12 +2431,73 @@ window.contactOwner = function () {
 // Відкрити чат з клієнтом (якщо немає username — через бота)
 window.openAdminChat = function (telegramId) {
     if (window.Telegram?.WebApp?.openTelegramLink) {
-        // Спробуємо через бота — відправимо команду написати
         showToast('💬 Використайте кнопку "Написати клієнту" в боті');
     } else {
         showToast('💬 Відкрийте чат через Telegram бот');
     }
 }
+
+// AI генерація опису товару
+window.aiDescribeProduct = async function () {
+    const nameEl = document.getElementById('adminProductName');
+    const name = nameEl ? nameEl.value.trim() : '';
+    if (!name) {
+        showToast('Спочатку введи назву товару');
+        return;
+    }
+
+    const btn = document.getElementById('aiBtnDescribe');
+    const statusEl = document.getElementById('aiStatus');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Генерую...'; }
+    if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🤖 AI аналізує товар...'; }
+
+    try {
+        const category = document.getElementById('adminProductCategory')?.value || '';
+        const adminHeaders = getAdminHeaders();
+
+        const response = await fetch(CONFIG.API_URL + '/ai/describe-product', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders },
+            body: JSON.stringify({ name, category })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Помилка AI');
+        }
+
+        const data = await response.json();
+
+        // Заповнюємо поля
+        const descEl = document.getElementById('adminProductDesc');
+        if (descEl && data.description) descEl.value = data.description;
+
+        const emojiEl = document.getElementById('adminProductEmoji');
+        if (emojiEl && data.emoji && !emojiEl.value) emojiEl.value = data.emoji;
+
+        const priceEl = document.getElementById('adminProductPrice');
+        if (priceEl && data.suggestedPrice && !priceEl.value) priceEl.value = data.suggestedPrice;
+
+        // Показуємо результат
+        let msg = '✅ Опис згенеровано!';
+        if (data.priceMin && data.priceMax) {
+            msg += ` Орієнтовна ціна: ${data.priceMin}–${data.priceMax} грн`;
+        }
+        if (statusEl) statusEl.innerHTML = `<span style="color:green;">${msg}</span>`;
+        showToast('✨ AI заповнив опис і ціну!');
+
+        // Переходимо на крок 3 (опис) щоб показати результат
+        _sheetStep = 2;
+        _sheetUpdateUI();
+
+    } catch (e) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
+        showToast('❌ Помилка AI: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '✨ Згенерувати опис через AI'; }
+    }
+}
+
 window.markOrderPaid = async function (orderId) {
     if (!confirm('Позначити замовлення як оплачене?')) return;
     try {
