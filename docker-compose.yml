@@ -1,0 +1,31 @@
+version: '3.8'
+services:
+  db:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: vaper_bot_copy_user
+      POSTGRES_PASSWORD: vaper_bot_copy_pass
+      POSTGRES_DB: vaper_bot_copy_db
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"
+  app:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://vaper_bot_copy_user:vaper_bot_copy_pass@db:5432/vaper_bot_copy_db
+      NODE_ENV: development
+    ports:
+      - "8000:8000"
+    depends_on:
+      - db
+    volumes:
+      - .:/app
+      - /app/node_modules
+
+volumes:
+  postgres_data:
+
+networks:
+  default:
+    name: vaper-bot-copy-network

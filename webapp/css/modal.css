@@ -1,0 +1,93 @@
+/* Modal Styles */
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(11, 18, 32, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 9998;
+    padding: 24px;
+    backdrop-filter: blur(6px);
+}
+
+.modal-content {
+    background: var(--surface);
+    border-radius: 18px;
+    padding: 28px;
+    max-width: 420px;
+    width: 100%;
+    box-shadow: var(--shadow-lg);
+    border: 1px solid rgba(201, 163, 74, 0.2);
+}
+
+.modal-header {
+    margin-bottom: 24px;
+    text-align: center;
+}
+
+.modal-header h3 {
+    font-family: 'Playfair Display', 'Times New Roman', serif;
+    font-size: 22px;
+    margin-bottom: 8px;
+}
+
+.modal-subtitle {
+    font-size: 14px;
+    color: var(--text-light);
+}
+
+.modal-body {
+    margin-bottom: 24px;
+}
+
+.modal-body input {
+    width: 100%;
+    padding: 14px 18px;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    font-size: 16px;
+    font-weight: 500;
+    transition: var(--transition);
+}
+
+.modal-body input:focus {
+    outline: none;
+    border-color: var(--primary);
+    background: rgba(201, 163, 74, 0.05);
+}
+
+.modal-footer {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-primary,
+.btn-secondary {
+    flex: 1;
+    padding: 12px 18px;
+    border: none;
+    border-radius: 12px;
+    font-size: 15px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: var(--transition);
+}
+
+.btn-primary {
+    background: var(--secondary);
+    color: #f8fafc;
+}
+
+.btn-primary:active {
+    transform: scale(0.98);
+}
+
+.btn-secondary {
+    background: var(--border);
+    color: var(--text);
+}
+
+.btn-secondary:active {
+    transform: scale(0.98);
+}

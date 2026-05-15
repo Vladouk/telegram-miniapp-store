@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="uk">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAPER - Магазин рідин</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <link rel="stylesheet" href="css/style.css">
+    <link rel="stylesheet" href="css/modal.css">
+</head>
+
+<body>
+    <div id="app">
+        <!-- Header -->
+        <header id="header" class="header">
+            <div class="header-content">
+                <h1 id="logo">🔥 VAPER</h1>
+                <div class="header-icons">
+                    <button id="cartBtn" class="icon-btn">
+                        🛒
+                        <span id="cartCount" class="cart-count" style="display: none;">0</span>
+                    </button>
+                    <button id="settingsBtn" class="icon-btn">⚙️</button>
+                </div>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main id="main" class="main-content">
+            <!-- Home Page -->
+            <section id="homePage" class="page active">
+                <div class="home-banner">
+                    <div class="home-eyebrow">Елітна добірка смаків</div>
+                    <h2>Ласкаво просимо до VAPER</h2>
+                    <p>Преміальна колекція смаків, відбір якості та сервіс, який відчувається з першого кліку</p>
+                </div>
+                <div class="menu-grid">
+                    <div class="menu-item" onclick="navigateTo('catalog')">
+                        <div class="menu-icon">📦</div>
+                        <h3>Наявність</h3>
+                    </div>
+                    <div class="menu-item" onclick="navigateTo('cart')">
+                        <div class="menu-icon">🛒</div>
+                        <h3>Кошик</h3>
+                        <p id="homeCartCount">0 позицій</p>
+                    </div>
+                    <div class="menu-item" onclick="navigateTo('history')">
+                        <div class="menu-icon">📜</div>
+                        <h3>Історія</h3>
+                        <p>Твої замовлення</p>
+                    </div>
+                    <div class="menu-item" onclick="navigateTo('referral')">
+                        <div class="menu-icon">🎉</div>
+                        <h3>Реферальна Система</h3>
+                        <p>Запрошуй друзів</p>
+                    </div>
+                    <div class="menu-item" onclick="contactOwner()">
+                        <div class="menu-icon">💬</div>
+                        <h3>Зв'язатись з Власником</h3>
+                        <p>Питання? Пиши нам</p>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Catalog Page -->
+            <section id="catalogPage" class="page">
+                <div class="page-header">
+                    <h2>📦 Наявність</h2>
+                </div>
+
+                <!-- Category Selection Menu -->
+                <div id="categoryMenu" class="category-menu">
+                    <div class="menu-item-large" onclick="selectCategory('одноразки')">
+                        <div class="menu-icon-large">⚡</div>
+                        <h3>Одноразки</h3>
+                        <p>Міні вейпи</p>
+                    </div>
+                    <div class="menu-item-large" onclick="selectCategory('рідина')">
+                        <div class="menu-icon-large">💨</div>
+                        <h3>Рідини</h3>
+                        <p>Вибір фірми</p>
+                    </div>
+                </div>
+
+                <!-- Brand Selection (for liquids) -->
+                <div id="brandMenu" class="category-menu brand-menu-hidden">
+                    <button onclick="goBackToCategory()" class="back-btn">← Назад</button>
+                    <div class="menu-item-large" onclick="selectBrand('elfliq')">
+                        <div class="menu-icon-large">✨</div>
+                        <h3>ELFLIQ</h3>
+                    </div>
+                </div>
+
+                <!-- Products List -->
+                <div id="productsView">
+                    <button class="back-btn" onclick="goBackToCatalog()">← Назад</button>
+
+                    <div class="search-bar">
+                        <input type="text" id="searchInput" placeholder="Пошук товарів...">
+                    </div>
+
+                    <div id="productsList" class="products-grid">
+                        <!-- Товари будуть завантажені тут -->
+                    </div>
+                </div>
+            </section>
+
+            <!-- Product Detail Page -->
+            <section id="productPage" class="page">
+                <div class="product-detail" id="productDetail">
+                    <!-- Деталі товару будуть завантажені тут -->
+                </div>
+            </section>
+
+            <!-- Cart Page -->
+            <section id="cartPage" class="page">
+                <div class="page-header">
+                    <h2>🛒 Кошик</h2>
+                </div>
+                <div id="cartEmpty" class="empty-state">
+                    <p>Твій кошик порожній 😢</p>
+                    <button onclick="navigateTo('catalog')" class="btn btn-primary">Перейти до каталогу</button>
+                </div>
+                <div id="cartContent" style="display: none;">
+                    <div id="cartItems" class="cart-items">
+                        <!-- Товари у кошику -->
+                    </div>
+                    <div class="cart-summary">
+                        <div class="summary-item">
+                            <span>Сума:</span>
+                            <span id="subtotal">0.00 zł</span>
+                        </div>
+                        <div class="summary-item">
+                            <label for="promoInput">Промокод:</label>
+                            <div class="promo-input">
+                                <input type="text" id="promoInput" placeholder="Введи промокод">
+                                <button onclick="applyPromo()" class="btn-small">OK</button>
+                            </div>
+                        </div>
+                        <div class="summary-item" id="discountItem" style="display: none;">
+                            <span>Знижка:</span>
+                            <span id="discount">-0.00 zł</span>
+                        </div>
+                        <div class="summary-item" id="referralDiscountItem" style="display: none;">
+                            <span>Знижка (реф. код):</span>
+                            <span id="referralDiscount" style="color: #27ae60; font-weight: 600;">-10.00 zł</span>
+                        </div>
+                        <div class="summary-item" id="deliveryEstimateItem" style="display: none;">
+                            <span>Доставка (орієнтовно):</span>
+                            <span id="deliveryEstimateAmount">0.00 zł</span>
+                        </div>
+                        <div class="summary-item total">
+                            <span>Разом:</span>
+                            <span id="total">0.00 zł</span>
+                        </div>
+                    </div>
+                    <button onclick="navigateTo('checkout')" class="btn btn-primary btn-full">Оформити
+                        замовлення</button>
+                </div>
+            </section>
+
+            <!-- Checkout Page -->
+            <section id="checkoutPage" class="page">
+                <div class="page-header">
+                    <h2>💳 Оформлення замовлення</h2>
+                </div>
+                <div class="checkout-container">
+                    <div id="checkoutItems" style="margin-bottom: 20px;">
+                        <!-- Товари буду залогувати -->
+                    </div>
+                    <div class="checkout-form">
+                        <div class="form-group">
+                            <label>📦 Спосіб отримання:</label>
+                            <div class="delivery-options">
+                                <label class="delivery-option">
+                                    <input type="radio" id="delivery_type_delivery" name="deliveryType" value="delivery"
+                                        onchange="toggleDeliveryLocation()">
+                                    <span>🚚 Доставка</span>
+                                </label>
+                                <label class="delivery-option">
+                                    <input type="radio" id="delivery_type_pickup" name="deliveryType" value="pickup"
+                                        onchange="toggleDeliveryLocation()">
+                                    <span>📍 Самовивіз</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="form-group" id="deliveryAddressGroup" style="display: none;">
+                            <label>📍 Адреса доставки:</label>
+                            <input type="text" id="deliveryAddress" placeholder="Введи адресу або надішли локацію">
+                            <button class="btn-small" onclick="requestLocation()"
+                                style="margin-top: 8px; width: 100%;">📍 Надіслати геолокацію</button>
+                            <div id="deliveryEstimate" class="delivery-estimate" style="display: none;"></div>
+                        </div>
+
+                        <div class="form-group" id="pickupLocationGroup" style="display: none;">
+                            <label>📍 Локація самовивізу:</label>
+                            <textarea id="pickupLocation" placeholder="" readonly></textarea>
+                        </div>
+
+                        <div class="form-group">
+                            <label>💳 Спосіб оплати:</label>
+                            <div class="payment-methods">
+                                <label class="payment-option">
+                                    <input type="radio" id="payment_cash" name="payment" value="cash" checked>
+                                    <span>💰 Готівка</span>
+                                </label>
+                                <label class="payment-option">
+                                    <input type="radio" id="payment_card" name="payment" value="card">
+                                    <span>💳 Укр. Карта</span>
+                                </label>
+                                <label class="payment-option">
+                                    <input type="radio" id="payment_usdt" name="payment" value="usdt">
+                                    <span>₿ USDT</span>
+                                </label>
+                            </div>
+                            <div id="currencyExchange"
+                                style="display: none; margin-top: 12px; padding: 10px 12px; background: #f0f8ff; border-radius: 8px; font-size: 14px; color: #0066cc;">
+                                💱 <span id="exchangeText"></span>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label>📝 Примітки:</label>
+                            <textarea id="customerNotes" placeholder="Додаткова інформація..."></textarea>
+                        </div>
+                    </div>
+                    <div class="checkout-summary">
+                        <h3>Разом: <span id="checkoutTotal">0.00 zł</span></h3>
+                        <div id="deliveryEstimateSummary" class="delivery-estimate" style="display: none;"></div>
+                    </div>
+                    <button onclick="confirmOrder()" class="btn btn-primary btn-full">Підтвердити замовлення</button>
+                </div>
+            </section>
+
+            <!-- Order Confirmation Page -->
+            <section id="confirmationPage" class="page">
+                <div class="confirmation-container">
+                    <div class="success-icon">✅</div>
+                    <h2>Замовлення прийнято!</h2>
+                    <div class="confirmation-details" id="confirmationDetails">
+                        <!-- Деталі будуть вставлені -->
+                    </div>
+                    <button onclick="navigateTo('home')" class="btn btn-primary btn-full">Повернутися на
+                        головну</button>
+                </div>
+            </section>
+
+            <!-- History Page -->
+            <section id="historyPage" class="page">
+                <div class="page-header">
+                    <h2>📜 Історія покупок</h2>
+                </div>
+                <div id="historyEmpty" class="empty-state">
+                    <p>У тебе поки немає замовлень 😢</p>
+                </div>
+                <div id="historyList" style="display: none;">
+                    <!-- Замовлення будуть завантажені -->
+                </div>
+            </section>
+
+            <!-- Referral System Page -->
+            <section id="referralPage" class="page">
+                <div class="page-header">
+                    <h2>🎉 Реферальна Система</h2>
+                </div>
+                <div style="padding: 16px;">
+                    <div
+                        style="background: #e8f5e9; border: 2px solid #4caf50; padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                        <p style="margin: 0 0 12px 0; color: #2e7d32; font-size: 13px; font-weight: 600;">
+                            💡 <strong>Як це працює?</strong>
+                        </p>
+                        <p style="margin: 0 0 8px 0; color: #1b5e20; font-size: 12px;">
+                            1️⃣ <strong>Запроси друга</strong> - Поділись своїм кодом<br>
+                            2️⃣ <strong>Друг вводить код</strong> - Он знижує на першу покупку -10 zł<br>
+                            3️⃣ <strong>Ти отримаєш -10 zł</strong> - На своє наступне замовлення
+                        </p>
+                    </div>
+
+                    <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                        <h3 style="margin-bottom: 12px;">🔐 Маєш код від друга?</h3>
+                        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                            <input type="text" id="referralInputCode" placeholder="Введи код (наприклад: ABC12345)"
+                                maxlength="8"
+                                style="flex: 1; padding: 12px; border: 2px solid var(--primary); border-radius: 8px; text-transform: uppercase; font-weight: 600;">
+                            <button onclick="pasteReferralCode()"
+                                style="padding: 12px 14px; background: #666; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; font-size: 16px; min-width: 46px;" title="Вставити скопійований код">📋</button>
+                        </div>
+                        <button onclick="applyReferralCode()"
+                            style="width: 100%; padding: 12px 16px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">✓ Додати</button>
+                        <small style="color: var(--text-light); margin-top: 8px; display: block; font-size: 12px;">Введи
+                            код тільки один раз! Після цього ти зможеш тільки отримувати знижки.</small>
+                        <div id="applyReferralStatus"
+                            style="margin-top: 12px; display: none; padding: 12px; border-radius: 8px; text-align: center; font-weight: 600;">
+                        </div>
+                    </div>
+
+                    <div id="referrerInfoSection" style="display: none; background: #e3f2fd; border: 2px solid #1976d2; padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                        <h3 style="margin-bottom: 12px; color: #1565c0;">👤 Хто тебе запросив</h3>
+                        <div style="background: white; padding: 12px; border-radius: 8px; margin-bottom: 12px;">
+                            <div style="font-size: 16px; font-weight: 600; color: #1565c0; margin-bottom: 4px;" id="referrerName">-</div>
+                            <div style="font-size: 12px; color: #666; margin-bottom: 4px;" id="referrerCodeUsed">-</div>
+                            <div style="font-size: 11px; color: #999;" id="referrerDate">-</div>
+                        </div>
+                        <p style="color: #1565c0; font-size: 12px; margin: 0;">✅ Ти вже використав реферальний код і отримаєш знижку на першу покупку!</p>
+                    </div>
+
+                    <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                        <h3 style="margin-bottom: 12px;">Твій реферальний код:</h3>
+                        <div style="display: flex; gap: 8px; align-items: center;">
+                            <div
+                                style="background: white; padding: 12px; border-radius: 8px; flex: 1; text-align: center; border: 2px solid var(--primary);">
+                                <strong style="font-size: 18px;" id="referralCodeText">будується...</strong>
+                            </div>
+                            <button onclick="copyReferralCode()"
+                                style="padding: 12px 16px; background: var(--primary); color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600;">📋
+                                Копіювати</button>
+
+                        </div>
+                    </div>
+
+                    <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
+                        <h3 style="margin-bottom: 12px;">💰 Твоя винагорода:</h3>
+                        <div style="font-size: 24px; font-weight: bold; color: var(--primary);" id="rewardBalance">0 zł
+                        </div>
+                        <p style="color: var(--text-light); font-size: 12px; margin-top: 8px;">За кожного друга що
+                            використає твій код, ти отримаєш -10 zł на наступне замовлення!</p>
+                    </div>
+
+                    <div style="background: var(--light); padding: 16px; border-radius: 12px;">
+                        <h3 style="margin-bottom: 12px;">👥 Запрошені друзі:</h3>
+                        <div id="referralHistoryList" style="max-height: 400px; overflow-y: auto;">
+                            <p style="text-align: center; color: var(--text-light);">завантаження...</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Admin Page -->
+            <section id="adminPage" class="page">
+                <div class="page-header">
+                    <h2>🔐 Адмін Панель</h2>
+                </div>
+                <div class="admin-menu">
+                    <button class="admin-btn" onclick="showAdminTab('stats')">📊 Статистика</button>
+                    <button class="admin-btn" onclick="showAdminTab('analytics')">📈 Аналітика</button>
+                    <button class="admin-btn" onclick="showAdminTab('products')">📦 Товари</button>
+                    <button class="admin-btn" onclick="showAdminTab('orders')">📋 Замовлення</button>
+                    <button class="admin-btn" onclick="showAdminTab('clients')">👥 Клієнти</button>
+                    <button class="admin-btn" onclick="showAdminTab('messages')">💬 Повідомлення</button>
+                    <button class="admin-btn" onclick="showAdminTab('promocodes')">🎟️ Промокоди</button>
+                    <button class="admin-btn" onclick="showAdminTab('referrals')">🎉 Референали</button>
+                    <button class="admin-btn" onclick="showAdminTab('reassign')">🔁 Перенесення</button>
+                </div>
+                <div id="adminContent">
+                    <!-- Контент буде вставлен -->
+                </div>
+
+                <!-- Client Details Modal (always available) -->
+                <div id="clientDetailsModal"
+                    style="display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+                    <div
+                        style="background: var(--bg); padding: 24px; border-radius: 16px; max-width: 600px; width: 90%; max-height: 80vh; overflow-y: auto;">
+                        <div
+                            style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
+                            <h3 id="clientModalTitle">Клієнт</h3>
+                            <button onclick="closeClientModal()"
+                                style="background: none; border: none; font-size: 24px; cursor: pointer;">✕</button>
+                        </div>
+                        <div id="clientModalContent"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Settings Page -->
+            <section id="settingsPage" class="page">
+                <div class="page-header">
+                    <h2>⚙️ Налаштування</h2>
+                </div>
+                <div class="settings-container">
+                    <div class="settings-group">
+                        <label> Тема:</label>
+                        <div class="theme-toggle">
+                            <button id="lightTheme" class="theme-btn active" onclick="setTheme('light')">☀️
+                                Світла</button>
+                            <button id="darkTheme" class="theme-btn" onclick="setTheme('dark')">🌙 Темна</button>
+                        </div>
+                    </div>
+
+                </div>
+            </section>
+        </main>
+
+        <!-- Navigation Bar -->
+        <nav id="navbar" class="navbar">
+            <button class="nav-btn active" onclick="navigateTo('home')">🏠</button>
+            <button class="nav-btn" onclick="navigateTo('catalog')">📦</button>
+            <button class="nav-btn" onclick="navigateTo('cart')">🛒</button>
+            <button id="adminBtn" class="nav-btn" onclick="checkAdmin()">👤</button>
+        </nav>
+
+
+
+        <!-- Loading Spinner -->
+        <div id="loading" class="loading" style="display: none;">
+            <div class="spinner"></div>
+        </div>
+
+        <!-- Toast Notification -->
+        <div id="toast" class="toast"></div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/axios@1.4.0/dist/axios.min.js"></script>
+    <script src="js/config.js"></script>
+    <script src="js/cart.js"></script>
+    <script src="js/products.js?v=20260205-1"></script>
+    <script src="js/app.js?v=20260205-7"></script>
+    <script src="js/analytics.js"></script>
+</body>
+
+</html>

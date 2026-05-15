@@ -1,0 +1,8 @@
+[phases.setup]
+nixPkgs = ["nodejs-18_x", "openssl"]
+
+[phases.install]
+cmds = ["npm install"]
+
+[start]
+cmd = "sh start.sh"

@@ -1,0 +1,50 @@
+version: 2.1
+
+jobs:
+  test:
+    docker:
+      - image: python:3.11
+      - image: postgres:15
+        environment:
+          POSTGRES_USER: vaper_user
+          POSTGRES_PASSWORD: vaper_password
+          POSTGRES_DB: vaper
+    steps:
+      - checkout
+      - run:
+          name: Install dependencies
+          command: |
+            pip install --upgrade pip
+            pip install -r requirements.txt
+      - run:
+          name: Run tests
+          command: |
+            python -m pytest tests/ -v
+      - run:
+          name: Check code style
+          command: |
+            pip install flake8
+            flake8 backend/ bot/ --count --select=E9,F63,F7,F82 --show-source --statistics
+
+  deploy:
+    docker:
+      - image: buildpack-deps:bullseye-curl
+    steps:
+      - checkout
+      - run:
+          name: Deploy to Railway
+          command: |
+            curl -L https://railway.app/install.sh | sh
+            railway deploy --token $RAILWAY_TOKEN
+
+workflows:
+  version: 2
+  test_and_deploy:
+    jobs:
+      - test
+      - deploy:
+          requires:
+            - test
+          filters:
+            branches:
+              only: main

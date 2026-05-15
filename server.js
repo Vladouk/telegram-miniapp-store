@@ -1,0 +1,3078 @@
+import express from "express";
+import cors from "cors";
+import path from "path";
+import { fileURLToPath } from "url";
+import crypto from "crypto";
+import dotenv from "dotenv";
+import { PrismaClient } from "@prisma/client";
+import multer from "multer";
+import fs from "fs";
+
+// Fix BigInt serialization in JSON
+BigInt.prototype.toJSON = function () {
+  return this.toString();
+};
+
+dotenv.config();
+
+const config = {
+  botToken: process.env.BOT_TOKEN?.trim(),
+  adminId: process.env.ADMIN_ID,
+  adminIds: process.env.ADMIN_ID?.split(',').map(id => id.trim()).filter(Boolean) || [], // Parse as array
+  secretKey: process.env.SECRET_KEY || "dev-secret-key",
+  backendUrl: (process.env.BACKEND_URL || "http://localhost:8000").trim(),
+  webhookUrl: process.env.WEBHOOK_URL?.trim() || `${process.env.BACKEND_URL || "http://localhost:8000"}/api/bot/webhook`,
+  deliveryOriginAddress: (process.env.DELIVERY_ORIGIN_ADDRESS || "Wroclaw Sw wincentego 59").trim(),
+  deliveryRatePerKm: Number.parseFloat(process.env.DELIVERY_RATE_PER_KM || "5"),
+  deliveryMinFee: Number.parseFloat(process.env.DELIVERY_MIN_FEE || "20"),
+  deliveryMaxDistanceKm: Number.parseFloat(process.env.DELIVERY_MAX_DISTANCE_KM || "20"),
+  env: process.env.NODE_ENV || "development",
+  debug: process.env.DEBUG === "true",
+  logLevel: process.env.LOG_LEVEL || "info",
+  port: parseInt(process.env.PORT || "8000", 10),
+  databaseUrl: process.env.DATABASE_URL,
+};
+
+const prisma = new PrismaClient();
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const app = express();
+
+// Стейт-менеджмент для розмов адміна з клієнтами
+const adminStates = new Map(); // { adminId: { action: 'waiting_message', clientId: '123' } }
+
+// Налаштування папки для завантажень
+const uploadsDir = path.join(__dirname, 'uploads');
+if (!fs.existsSync(uploadsDir)) {
+  fs.mkdirSync(uploadsDir, { recursive: true });
+}
+
+// Налаштування multer для завантаження файлів
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    cb(null, uploadsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname);
+    const name = path.basename(file.originalname, ext);
+    cb(null, name + '-' + uniqueSuffix + ext);
+  }
+});
+
+const upload = multer({
+  storage: storage,
+  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  fileFilter: (req, file, cb) => {
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    if (allowedMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed'));
+    }
+  }
+});
+
+// Helpers
+function verifyTelegramData(initData) {
+  const searchParams = new URLSearchParams(initData);
+  const hash = searchParams.get("hash");
+  searchParams.delete("hash");
+
+  const dataCheckString = Array.from(searchParams)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+
+  const secretKey = crypto
+    .createHmac("sha256", "WebAppData")
+    .update(config.botToken || "")
+    .digest();
+
+  const computedHash = crypto
+    .createHmac("sha256", secretKey)
+    .update(dataCheckString)
+    .digest("hex");
+
+  return computedHash === hash;
+}
+
+function getTelegramUserFromInitData(initData) {
+  try {
+    const searchParams = new URLSearchParams(initData);
+    const userJson = searchParams.get("user");
+    if (!userJson) {
+      return null;
+    }
+    return JSON.parse(userJson);
+  } catch (error) {
+    return null;
+  }
+}
+
+function serializePromoCode(promo) {
+  return {
+    id: promo.id,
+    code: promo.code,
+    discount_type: promo.discountType,
+    discount_value: promo.discountValue,
+    max_uses: promo.maxUses,
+    used_count: promo.usedCount,
+    is_active: promo.isActive,
+    min_purchase: promo.minPurchase,
+    expires_at: promo.expiresAt,
+    created_at: promo.createdAt,
+  };
+}
+
+function validatePromoForTotal(promo, totalPrice) {
+  if (!promo) return { valid: false, message: "Invalid or expired promo code" };
+  if (!promo.isActive) return { valid: false, message: "Invalid or expired promo code" };
+  if (promo.maxUses && promo.usedCount >= promo.maxUses) return { valid: false, message: "Invalid or expired promo code" };
+  if (promo.expiresAt && promo.expiresAt < new Date()) return { valid: false, message: "Invalid or expired promo code" };
+  if (promo.minPurchase && totalPrice < promo.minPurchase) return { valid: false, message: "Invalid or expired promo code" };
+
+  const discount = promo.discountType === "percent"
+    ? (totalPrice * promo.discountValue) / 100
+    : promo.discountValue;
+
+  return { valid: true, discount };
+}
+
+// Helper function to check if an ID is an admin
+function isAdminId(adminIdToCheck) {
+  if (!adminIdToCheck) return false;
+  return config.adminIds.some(id => String(id) === String(adminIdToCheck));
+}
+
+// Generate random referral code candidate
+function generateReferralCode() {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return code;
+}
+
+async function generateUniqueReferralCode() {
+  let code;
+  let exists = true;
+
+  while (exists) {
+    code = generateReferralCode();
+    exists = await prisma.user.findUnique({ where: { referralCode: code } });
+  }
+
+  return code;
+}
+
+async function ensureUserHasReferralCode(user) {
+  if (!user) return null;
+  if (user.referralCode) return user;
+
+  const referralCode = await generateUniqueReferralCode();
+  return prisma.user.update({
+    where: { telegramId: user.telegramId },
+    data: { referralCode }
+  });
+}
+
+async function assignMissingReferralCodes() {
+  const users = await prisma.user.findMany({
+    where: { referralCode: null }
+  });
+
+  for (const user of users) {
+    await ensureUserHasReferralCode(user);
+  }
+}
+
+// Helper function to send message to all admin IDs
+async function sendToAllAdmins(messagePayload) {
+  if (!config.adminIds || config.adminIds.length === 0) {
+    console.warn('⚠️ No admin IDs configured');
+    return;
+  }
+
+  const promises = config.adminIds.map(adminId =>
+    fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...messagePayload,
+        chat_id: adminId
+      })
+    }).catch(err => console.error(`Failed to send to admin ${adminId}:`, err))
+  );
+
+  await Promise.all(promises);
+}
+
+async function geocodeAddress(address) {
+  const url = new URL("https://nominatim.openstreetmap.org/search");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("addressdetails", "1");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("q", address);
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      "User-Agent": "VaperDeliveryEstimator/1.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to geocode address");
+  }
+
+  const results = await response.json();
+  const first = Array.isArray(results) ? results[0] : null;
+  if (!first) {
+    return null;
+  }
+
+  return {
+    lat: Number.parseFloat(first.lat),
+    lon: Number.parseFloat(first.lon),
+    displayName: first.display_name || address,
+    address: first.address || null,
+  };
+}
+
+
+async function getRouteDistanceKm(origin, destination) {
+  try {
+    const url = `https://router.project-osrm.org/route/v1/driving/${origin.lon},${origin.lat};${destination.lon},${destination.lat}?overview=false`;
+    const response = await fetch(url);
+    if (!response.ok) {
+      return null;
+    }
+
+    const data = await response.json();
+    const distanceMeters = data?.routes?.[0]?.distance;
+    if (!Number.isFinite(distanceMeters)) {
+      return null;
+    }
+
+    return distanceMeters / 1000;
+  } catch (error) {
+    return null;
+  }
+}
+
+function getHaversineDistanceKm(origin, destination) {
+  const toRad = (value) => (value * Math.PI) / 180;
+  const lat1 = toRad(origin.lat);
+  const lon1 = toRad(origin.lon);
+  const lat2 = toRad(destination.lat);
+  const lon2 = toRad(destination.lon);
+  const dLat = lat2 - lat1;
+  const dLon = lon2 - lon1;
+
+  const a = Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2;
+  const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  const earthRadiusKm = 6371;
+
+  return earthRadiusKm * c;
+}
+
+async function reverseGeocodeCoordinates(lat, lon) {
+  const url = new URL("https://nominatim.openstreetmap.org/reverse");
+  url.searchParams.set("format", "json");
+  url.searchParams.set("lat", lat);
+  url.searchParams.set("lon", lon);
+  url.searchParams.set("zoom", "18");
+  url.searchParams.set("addressdetails", "1");
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      "User-Agent": "VaperDeliveryEstimator/1.0",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("Failed to reverse geocode coordinates");
+  }
+
+  const result = await response.json();
+  const addr = result.address || {};
+
+  // Компонуємо спрощену адресу з основних деталей
+  const parts = [];
+
+  // Вулиця + номер будинку
+  if (addr.road) {
+    const street = `${addr.road}${addr.house_number ? ' ' + addr.house_number : ''}`;
+    parts.push(street);
+  }
+
+  // Район/підрайон
+  if (addr.suburb && addr.suburb.toLowerCase() !== 'wrocław' && addr.suburb.toLowerCase() !== 'wroclaw') {
+    parts.push(addr.suburb);
+  }
+
+  // Місто (за замовчуванням Wrocław)
+  parts.push('Wrocław');
+
+  const finalAddress = parts.join(', ');
+
+  return {
+    lat: Number.parseFloat(result.lat),
+    lon: Number.parseFloat(result.lon),
+    displayName: finalAddress,
+    address: addr,
+  };
+}
+
+async function getOrCreateUser(telegramId, userData) {
+  const isAdmin = isAdminId(telegramId.toString());
+  const referralCode = await generateUniqueReferralCode();
+
+  const user = await prisma.user.upsert({
+    where: { telegramId: BigInt(telegramId) },
+    update: {
+      ...userData,
+      isAdmin: isAdmin,
+    },
+    create: {
+      telegramId: BigInt(telegramId),
+      referralCode,
+      ...userData,
+      isAdmin: isAdmin,
+    },
+  });
+
+  return ensureUserHasReferralCode(user);
+}
+
+async function upsertTelegramUserFromPayload(tgUser) {
+  if (!tgUser?.id) {
+    return null;
+  }
+
+  const userData = {};
+  if (tgUser.username) userData.username = tgUser.username;
+  if (tgUser.first_name) userData.firstName = tgUser.first_name;
+  if (tgUser.last_name) userData.lastName = tgUser.last_name;
+
+  return getOrCreateUser(tgUser.id, userData);
+}
+
+async function markAgeVerified(telegramId) {
+  if (!telegramId) {
+    return null;
+  }
+
+  const now = new Date();
+  const isAdmin = isAdminId(telegramId.toString());
+
+  let user = await prisma.user.upsert({
+    where: { telegramId: BigInt(telegramId) },
+    update: {
+      isAgeVerified: true,
+      ageVerifiedAt: now,
+      isAdmin: isAdmin,
+    },
+    create: {
+      telegramId: BigInt(telegramId),
+      isAgeVerified: true,
+      ageVerifiedAt: now,
+      isAdmin: isAdmin,
+    },
+  });
+
+  return ensureUserHasReferralCode(user);
+}
+
+// Middleware
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// Static files
+app.use("/static", express.static(path.join(__dirname, "webapp")));
+app.use("/webapp", express.static(path.join(__dirname, "webapp")));
+app.use("/uploads", express.static(uploadsDir));
+
+// Health check
+app.get("/", (req, res) => {
+  res.json({
+    status: "ok",
+    message: "Vaper Mini App API",
+    docs: "/api/docs",
+  });
+});
+
+app.get("/health", (req, res) => {
+  res.json({ status: "healthy", botToken: config.botToken ? "set" : "missing" });
+});
+
+// Test webhook endpoint
+app.get("/api/bot/test", (req, res) => {
+  res.json({
+    status: "ok",
+    webhook: config.webhookUrl,
+    botToken: config.botToken ? "configured" : "missing",
+    backendUrl: config.backendUrl
+  });
+});
+
+// Telegram Bot Webhook
+app.post("/api/bot/webhook", async (req, res) => {
+  try {
+    console.log("📨 Webhook received:", JSON.stringify(req.body, null, 2));
+
+    // Обробка callback_query (натиснення кнопок)
+    if (req.body.callback_query) {
+      const callbackQuery = req.body.callback_query;
+      const chatId = callbackQuery.message.chat.id;
+      const data = callbackQuery.data;
+
+      await upsertTelegramUserFromPayload(callbackQuery.from);
+
+      console.log(`🔘 Callback from ${chatId}: ${data}`);
+
+      if (data === "age_ok") {
+        const user = await markAgeVerified(chatId);
+
+        // Notify all admins about new client
+        const userInfo = user ? `${user.firstName || 'Customer'} ${user.username ? '@' + user.username : ''}`.trim() : `ID: ${chatId}`;
+        await sendToAllAdmins({
+          text: `🆕 <b>New client!</b>\n👤 ${userInfo}\n🆔 ID: ${chatId}\n✅ Verified age`,
+          parse_mode: 'HTML',
+        });
+
+        const webAppUrl = `${config.backendUrl}/webapp/index.html`.trim();
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: "✅ Дякуємо! Вік підтверджено. Можна відкривати магазин:",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  {
+                    text: "🛒 Відкрити магазин",
+                    web_app: { url: webAppUrl },
+                  },
+                ],
+              ],
+            },
+          }),
+        });
+
+        await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            callback_query_id: callbackQuery.id,
+          }),
+        });
+
+        return res.sendStatus(200);
+      }
+
+      // Перевірка що це адмін
+      if (isAdminId(chatId.toString())) {
+        // Обробка кнопки "Написати клієнту"
+        if (data.startsWith('msg_')) {
+          const clientId = data.replace('msg_', '');
+
+          // Зберігаємо стан адміна
+          adminStates.set(chatId.toString(), {
+            action: 'waiting_message',
+            clientId: clientId
+          });
+
+          // Відповідь адміну
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `✍️ Напишіть повідомлення для клієнта (ID: ${clientId}):\n\n📝 Наступне ваше повідомлення буде відправлено клієнту.`
+            })
+          });
+
+          // Відповідь на callback (щоб прибрати "годинник" на кнопці)
+          await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              callback_query_id: callbackQuery.id
+            })
+          });
+        }
+      } else {
+        // Обробка кнопки "Написати адміну" від клієнта
+        if (data === 'reply_admin') {
+          // Зберігаємо стан клієнта
+          adminStates.set(chatId.toString(), {
+            action: 'waiting_reply_to_admin',
+            clientId: chatId.toString()
+          });
+
+          // Відповідь клієнту
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `✍️ Напишіть ваше повідомлення для адміністратора:\n\n📝 Наступне ваше повідомлення буде відправлено адміну.`
+            })
+          });
+
+          // Відповідь на callback
+          await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              callback_query_id: callbackQuery.id
+            })
+          });
+        }
+      }
+
+      return res.sendStatus(200);
+    }
+
+    const { message } = req.body;
+    if (!message) {
+      console.log("⚠️ No message in webhook");
+      return res.sendStatus(200);
+    }
+
+    const user = await upsertTelegramUserFromPayload(message.from);
+
+    const chatId = message.chat.id;
+    const text = message.text;
+    console.log(`💬 Message from ${chatId}: ${text}`);
+
+    // Перевірка чи адмін в режимі відправки повідомлення клієнту
+    if (adminStates.has(chatId.toString())) {
+      const state = adminStates.get(chatId.toString());
+
+      if (state.action === 'waiting_message') {
+        const clientId = state.clientId;
+
+        // Відправляємо повідомлення клієнту
+        const clientResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: clientId,
+            text: `💬 <b>Повідомлення від VAPER:</b>\n\n${text}`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '💬 Відповісти', callback_data: 'reply_admin' }
+              ]]
+            }
+          })
+        });
+
+        if (clientResponse.ok) {
+          // Підтверджуємо адміну
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `✅ Повідомлення відправлено клієнту!`
+            })
+          });
+        } else {
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `❌ Помилка відправки повідомлення клієнту.`
+            })
+          });
+        }
+
+        // Очищуємо стан
+        adminStates.delete(chatId.toString());
+        return res.sendStatus(200);
+      } else if (state.action === 'waiting_reply_to_admin') {
+        // Клієнт відправляє повідомлення адміну
+        const user = await prisma.user.findUnique({
+          where: { telegramId: BigInt(chatId) }
+        });
+
+        const clientInfo = user ? `${user.firstName || 'Клієнт'} ${user.username ? '@' + user.username : ''}`.trim() : `Клієнт ID: ${chatId}`;
+
+        // Відправляємо повідомлення всім адмінам
+        await sendToAllAdmins({
+          text: `💬 <b>Повідомлення від клієнта:</b>\n👤 ${clientInfo}\n🆔 ID: <code>${chatId}</code>\n\n${text}`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '💬 Відповісти клієнту', callback_data: `msg_${chatId}` }
+            ]]
+          }
+        });
+
+        // Підтверджуємо клієнту
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: `✅ Ваше повідомлення відправлено адміністратору!`
+          })
+        });
+
+        // Очищуємо стан
+        adminStates.delete(chatId.toString());
+        return res.sendStatus(200);
+      }
+    }
+
+    if (text === "/start") {
+      if (!user?.isAgeVerified) {
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: "🔞 Контент тільки для повнолітніх. Підтверди, що тобі 18+.",
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: "Мені 18+", callback_data: "age_ok" },
+                ],
+              ],
+            },
+          }),
+        });
+
+        return res.sendStatus(200);
+      }
+
+      const webAppUrl = `${config.backendUrl}/webapp/index.html`.trim();
+      console.log(`🔗 Web App URL: ${webAppUrl}`);
+
+      const response = {
+        chat_id: chatId,
+        text: "🔥 Ласкаво просимо в VAPER!\n\nНатисни кнопку нижче щоб відкрити магазин:",
+        reply_markup: {
+          inline_keyboard: [
+            [
+              {
+                text: "🛒 Відкрити магазин",
+                web_app: { url: webAppUrl },
+              },
+            ],
+          ],
+        },
+      };
+
+      console.log("🤖 Sending response to Telegram...");
+      console.log("Payload:", JSON.stringify(response));
+
+      // Відправка повідомлення
+      const botResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(response),
+      });
+
+      const result = await botResponse.json();
+      console.log("✅ Bot response:", result);
+    } else {
+      // Якщо це не /start і не адмін - пересилаємо повідомлення адміну
+      if (!isAdminId(chatId.toString())) {
+        // Отримуємо інфо про користувача
+        const user = message.from;
+        const userName = user.username ? `@${user.username}` : (user.first_name || 'Клієнт');
+
+        // Пересилаємо всім адмінам з кнопкою відповіді
+        await sendToAllAdmins({
+          text: `💬 <b>Повідомлення від клієнта</b>\n\n👤 ${userName} (ID: ${chatId})\n📩 ${text}`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '✉️ Відповісти', callback_data: `msg_${chatId}` }
+            ]]
+          }
+        });
+
+        // Підтверджуємо клієнту
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: '✅ Ваше повідомлення отримано! Адміністратор відповість найближчим часом.'
+          })
+        });
+      }
+    }
+
+    res.sendStatus(200);
+  } catch (error) {
+    console.error("❌ Webhook error:", error);
+    res.sendStatus(200);
+  }
+});
+
+// Users
+app.post("/api/users/login", async (req, res) => {
+  try {
+    const { initData, userData } = req.body;
+
+    if (!verifyTelegramData(initData)) {
+      return res.status(401).json({ error: "Invalid initData" });
+    }
+
+    const user = await getOrCreateUser(userData.id, {
+      username: userData.username,
+      firstName: userData.first_name,
+      lastName: userData.last_name,
+    });
+
+    res.json(user);
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/users/age-verify", async (req, res) => {
+  try {
+    const initData = req.body?.initData || req.body?.init_data;
+    if (!initData || !verifyTelegramData(initData)) {
+      return res.status(401).json({ error: "Invalid initData" });
+    }
+
+    const tgUser = getTelegramUserFromInitData(initData);
+    if (!tgUser?.id) {
+      return res.status(400).json({ error: "Missing Telegram user" });
+    }
+
+    const user = await markAgeVerified(tgUser.id);
+    if (!user) {
+      return res.status(500).json({ error: "Failed to verify age" });
+    }
+
+    res.json({
+      success: true,
+      user: {
+        ...user,
+        telegramId: user.telegramId.toString(),
+      },
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint для передачи реферального коду при першій реєстрації
+app.post("/api/users/apply-referral-code", async (req, res) => {
+  try {
+    const initData = req.body?.initData || req.body?.init_data;
+    const referralCode = req.body?.referral_code ? String(req.body.referral_code).trim().toUpperCase() : null;
+
+    if (!initData || !verifyTelegramData(initData)) {
+      return res.status(401).json({ error: "Invalid initData" });
+    }
+
+    const tgUser = getTelegramUserFromInitData(initData);
+    if (!tgUser?.id) {
+      return res.status(400).json({ error: "Missing Telegram user" });
+    }
+
+    const telegramId = BigInt(tgUser.id);
+    const user = await prisma.user.findUnique({
+      where: { telegramId }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Check if user already used a referral code
+    if (user.referralCodeUsed) {
+      return res.status(400).json({ error: "Ви вже використали реферальний код" });
+    }
+
+    // If no code provided, just return success
+    if (!referralCode) {
+      return res.json({ success: true, message: "Ви пропустили реферальний код" });
+    }
+
+    // Find referrer
+    const referrer = await prisma.user.findUnique({
+      where: { referralCode }
+    });
+
+    if (!referrer) {
+      return res.status(400).json({ error: "Неправильний реферальний код" });
+    }
+
+    if (referrer.telegramId === telegramId) {
+      return res.status(400).json({ error: "Не можна використати свій власний код" });
+    }
+
+    // Check if this referrer already rewarded this user
+    const existingReward = await prisma.referralReward.findUnique({
+      where: {
+        referrerTelegramId_referredTelegramId: {
+          referrerTelegramId: referrer.telegramId,
+          referredTelegramId: telegramId
+        }
+      }
+    });
+
+    if (existingReward) {
+      return res.status(400).json({ error: "Ви вже використали цей реферальний код" });
+    }
+
+    // Create referral reward and update user
+    await prisma.referralReward.create({
+      data: {
+        referrerTelegramId: referrer.telegramId,
+        referredTelegramId: telegramId,
+        rewardAmount: 10,
+        status: 'pending'
+      }
+    });
+
+    // Update referrer's reward balance
+    await prisma.user.update({
+      where: { telegramId: referrer.telegramId },
+      data: {
+        referralRewardRemaining: {
+          increment: 10
+        }
+      }
+    });
+
+    // Mark the code as used on the referred user
+    const updatedUser = await prisma.user.update({
+      where: { telegramId },
+      data: {
+        referralCodeUsed: referralCode,
+        referrerTelegramId: referrer.telegramId
+      }
+    });
+
+    // Notify referrer
+    const referredName = [user.firstName, user.lastName].filter(Boolean).join(' ').trim() || user.username || `User ${user.telegramId}`;
+    await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: referrer.telegramId.toString(),
+        text: `🎉 <b>Твій друг записався!</b>\n\n👤 ${referredName}\n💰 Ти отримав -10 zł на наступне замовлення!\n\nСпасибо за рекомендацію! 🙌`,
+        parse_mode: 'HTML'
+      })
+    }).catch(err => console.error('Failed to notify referrer:', err));
+
+    res.json({
+      success: true,
+      message: "Реферальний код прийнято!",
+      user: {
+        ...updatedUser,
+        telegramId: updatedUser.telegramId.toString(),
+      }
+    });
+  } catch (error) {
+    console.error('Error applying referral code:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint для отримання всіх користувачів (має бути ПЕРЕД /:telegramId)
+app.get("/api/users/all", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const users = await prisma.user.findMany({
+      include: {
+        orders: {
+          orderBy: { createdAt: "desc" },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // Convert BigInt to string for JSON serialization
+    const usersResponse = users.map(user => ({
+      ...user,
+      telegramId: user.telegramId.toString(),
+      orders: user.orders.map(order => ({
+        ...order,
+        telegramId: order.telegramId.toString(),
+      })),
+    }));
+
+    res.json(usersResponse);
+  } catch (error) {
+    console.error('Error loading users:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: Export all clients to Telegram
+app.post("/api/admin/export-clients", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const users = await prisma.user.findMany({
+      where: { isAgeVerified: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    if (users.length === 0) {
+      await sendToAllAdmins({
+        text: "📋 List of clients is empty"
+      });
+      return res.json({ success: true, count: 0 });
+    }
+
+    // Format list: @username or name + ID
+    const clientsList = users.map(user => {
+      if (user.username) {
+        return `@${user.username}`;
+      } else if (user.firstName) {
+        return `${user.firstName} (ID: ${user.telegramId})`;
+      } else {
+        return `ID: ${user.telegramId}`;
+      }
+    }).join('\n');
+
+    const message = `📋 <b>All clients list (${users.length})</b>\n\n${clientsList}`;
+    const maxLength = 4096;
+
+    // Split into parts if message is too long
+    if (message.length > maxLength) {
+      const parts = [];
+      let currentPart = "📋 <b>Clients list</b>\n";
+
+      for (const client of users.map(user => {
+        if (user.username) {
+          return `@${user.username}`;
+        } else if (user.firstName) {
+          return `${user.firstName} (ID: ${user.telegramId})`;
+        } else {
+          return `ID: ${user.telegramId}`;
+        }
+      })) {
+        const line = client + '\n';
+        if ((currentPart + line).length > maxLength) {
+          parts.push(currentPart);
+          currentPart = client + '\n';
+        } else {
+          currentPart += line;
+        }
+      }
+      if (currentPart.trim()) parts.push(currentPart);
+
+      // Send all parts to all admins
+      for (let i = 0; i < parts.length; i++) {
+        const text = (i === 0 ? "📋 <b>All clients list</b>\n" : "<b>Continuation (p. " + (i + 1) + ")</b>\n") + parts[i];
+        await sendToAllAdmins({
+          text: text,
+          parse_mode: 'HTML',
+        });
+      }
+    } else {
+      // Normal send if it fits - send to all admins
+      await sendToAllAdmins({
+        text: message,
+        parse_mode: 'HTML',
+      });
+    }
+
+    res.json({
+      success: true,
+      count: users.length,
+      message: 'List exported to Telegram',
+    });
+  } catch (error) {
+    console.error('Error exporting clients:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: refresh user profiles from Telegram
+app.post("/api/users/refresh-telegram", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const users = await prisma.user.findMany({
+      orderBy: { createdAt: "desc" }
+    });
+
+    const targets = users.filter(user => !user.username || !user.firstName || !user.lastName);
+    let updatedCount = 0;
+    let checkedCount = 0;
+
+    for (const user of targets) {
+      checkedCount += 1;
+      const telegramId = user.telegramId.toString();
+
+      try {
+        const tgResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/getChat`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: telegramId })
+        });
+
+        const tgResult = await tgResponse.json();
+        if (tgResult?.ok && tgResult?.result) {
+          const tgUser = tgResult.result;
+          const updateData = {};
+          if (tgUser.username) updateData.username = tgUser.username;
+          if (tgUser.first_name) updateData.firstName = tgUser.first_name;
+          if (tgUser.last_name) updateData.lastName = tgUser.last_name;
+
+          if (Object.keys(updateData).length > 0) {
+            await prisma.user.update({
+              where: { telegramId: BigInt(telegramId) },
+              data: updateData
+            });
+            updatedCount += 1;
+          }
+        }
+      } catch (error) {
+        console.error('❌ Failed to refresh user:', telegramId, error);
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 80));
+    }
+
+    res.json({
+      message: "Users refreshed",
+      checkedCount,
+      updatedCount
+    });
+  } catch (error) {
+    console.error('❌ Error refreshing users:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/users/:telegramId", async (req, res) => {
+  try {
+    const user = await getOrCreateUser(req.params.telegramId, {});
+    // Serialize BigInt for JSON
+    const serializedUser = {
+      ...user,
+      telegramId: user.telegramId.toString(),
+      id: user.id,
+    };
+    res.json(serializedUser);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/users/:telegramId", async (req, res) => {
+  try {
+    const { language, theme } = req.body;
+    const user = await prisma.user.update({
+      where: { telegramId: BigInt(req.params.telegramId) },
+      data: { language, theme },
+    });
+
+    res.json(user);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/users/:telegramId", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+
+    // Перевірка що це адмін
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const telegramId = BigInt(req.params.telegramId);
+    console.log('🗑️ Starting deletion process for user:', telegramId.toString());
+
+    // Отримання користувача для отримання його ID
+    const user = await prisma.user.findFirst({
+      where: { telegramId: telegramId }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    console.log('✅ Found user with id:', user.id);
+
+    // 1. Видалення рекомендацій користувача
+    const recommendationsDeleted = await prisma.recommendation.deleteMany({
+      where: { userId: user.id }
+    });
+    console.log(`🗑️ Deleted ${recommendationsDeleted.count} recommendations`);
+
+    // 2. Видалення продуктів в замовленнях користувача (OrderProduct)
+    const orderIds = await prisma.order.findMany({
+      where: { telegramId: telegramId },
+      select: { id: true }
+    });
+
+    // Повертаємо stock товарів перед видаленням замовлень
+    const allOrderProducts = await prisma.orderProduct.findMany({
+      where: {
+        orderId: { in: orderIds.map(o => o.id) }
+      }
+    });
+
+    for (const orderProduct of allOrderProducts) {
+      const updated = await prisma.product.update({
+        where: { id: orderProduct.productId },
+        data: {
+          stockQuantity: {
+            increment: orderProduct.quantity
+          }
+        }
+      });
+      console.log(`✅ Restored stock for product ${orderProduct.productId}: +${orderProduct.quantity}`);
+    }
+
+    const orderProductsDeleted = await prisma.orderProduct.deleteMany({
+      where: {
+        orderId: { in: orderIds.map(o => o.id) }
+      }
+    });
+    console.log(`🗑️ Deleted ${orderProductsDeleted.count} order products`);
+
+    // 3. Видалення замовлень користувача
+    const ordersDeleted = await prisma.order.deleteMany({
+      where: { telegramId: telegramId }
+    });
+    console.log(`🗑️ Deleted ${ordersDeleted.count} orders`);
+
+    // 4. Видалення користувача
+    const deletedUser = await prisma.user.delete({
+      where: { telegramId: telegramId }
+    });
+
+    console.log('✅ User completely deleted:', telegramId.toString());
+    res.json({
+      message: "User and all associated data deleted successfully",
+      deletedData: {
+        user: deletedUser.username || deletedUser.firstName || 'Unknown',
+        ordersCount: ordersDeleted.count,
+        orderProductsCount: orderProductsDeleted.count,
+        recommendationsCount: recommendationsDeleted.count
+      }
+    });
+  } catch (error) {
+    console.error('❌ Error deleting user:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Products
+app.get("/api/products", async (req, res) => {
+  try {
+    const { category, inStock } = req.query;
+    const filters = {};
+
+    if (category) filters.category = category;
+    if (inStock !== undefined) filters.inStock = inStock === "true";
+
+    const products = await prisma.product.findMany({
+      where: filters,
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(products);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/products", async (req, res) => {
+  try {
+    const { name, price, category, brand, emoji, description, nicotine_free, flavor_profile, in_stock, stock_quantity, image_url } = req.body;
+
+    console.log('Creating product:', { name, price, category, brand, emoji, image_url });
+
+    // Базові дані які завжди є
+    const productData = {
+      name,
+      nameEn: name,
+      namePl: name,
+      description,
+      descriptionEn: description,
+      descriptionPl: description,
+      price,
+      category,
+      nicotineFree: nicotine_free || false,
+      flavorProfile: flavor_profile || name,
+      inStock: in_stock !== false,
+      stockQuantity: stock_quantity || 100,
+      rating: 0,
+      imageUrl: image_url || `https://via.placeholder.com/200?text=${encodeURIComponent(name)}`
+    };
+
+    // Додаємо brand та emoji тільки якщо вони підтримуються схемою
+    try {
+      if (brand) productData.brand = brand;
+      if (emoji) productData.emoji = emoji;
+    } catch (e) {
+      console.log('Brand/emoji fields not available in schema yet');
+    }
+
+    const product = await prisma.product.create({
+      data: productData,
+    });
+
+    res.status(201).json(product);
+  } catch (error) {
+    console.error('Product creation error:', error);
+    res.status(500).json({ error: error.message, details: error.stack });
+  }
+});
+
+app.delete("/api/products/:id", async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id, 10);
+
+    // Перевірка чи існує товар
+    const product = await prisma.product.findUnique({
+      where: { id: productId }
+    });
+
+    if (!product) {
+      return res.status(404).json({ error: "Product not found" });
+    }
+
+    // Видалення товару
+    await prisma.product.delete({
+      where: { id: productId },
+    });
+
+    res.json({ message: "Product deleted successfully" });
+  } catch (error) {
+    console.error('Product deletion error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint для оновлення кількості товару
+app.put("/api/products/:id/stock", async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id, 10);
+    const { stock_quantity } = req.body;
+
+    if (stock_quantity === undefined || stock_quantity < 0) {
+      return res.status(400).json({ error: "Invalid stock quantity" });
+    }
+
+    const product = await prisma.product.update({
+      where: { id: productId },
+      data: {
+        stockQuantity: stock_quantity,
+        inStock: stock_quantity > 0,
+      },
+    });
+
+    res.json(product);
+  } catch (error) {
+    console.error('Stock update error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint для оновлення imageUrl товару
+app.put("/api/products/:id/image", async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id, 10);
+    const { imageUrl } = req.body;
+
+    if (!imageUrl) {
+      return res.status(400).json({ error: "imageUrl is required" });
+    }
+
+    const product = await prisma.product.update({
+      where: { id: productId },
+      data: { imageUrl },
+    });
+
+    res.json(product);
+  } catch (error) {
+    console.error('Image update error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/products/:id", async (req, res) => {
+  try {
+    const product = await prisma.product.findUnique({
+      where: { id: parseInt(req.params.id, 10) },
+      include: { orders: true },
+    });
+    if (!product) return res.status(404).json({ error: "Product not found" });
+    res.json(product);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/delivery/estimate", async (req, res) => {
+  try {
+    const address = String(req.query.address || "").trim();
+    if (!address) {
+      return res.status(400).json({ error: "address is required" });
+    }
+
+    const originAddress = config.deliveryOriginAddress;
+    const [origin, destination] = await Promise.all([
+      geocodeAddress(originAddress),
+      geocodeAddress(address),
+    ]);
+
+    if (!origin || !destination) {
+      return res.status(400).json({ error: "Address not found" });
+    }
+
+    let distanceKm = await getRouteDistanceKm(origin, destination);
+    if (!Number.isFinite(distanceKm)) {
+      distanceKm = getHaversineDistanceKm(origin, destination);
+    }
+
+    if (!Number.isFinite(distanceKm)) {
+      return res.status(500).json({ error: "Failed to calculate distance" });
+    }
+
+    const maxDistance = Number.isFinite(config.deliveryMaxDistanceKm)
+      ? config.deliveryMaxDistanceKm
+      : 20;
+
+    if (distanceKm > maxDistance) {
+      return res.json({
+        out_of_area: true,
+        message: "Доставка тільки в межах міста. Уточніть у власника.",
+        distance_km: distanceKm,
+        max_distance_km: maxDistance,
+        destination: destination.displayName,
+      });
+    }
+
+    const roundedKm = Math.max(1, Math.ceil(distanceKm));
+    const rate = Number.isFinite(config.deliveryRatePerKm) ? config.deliveryRatePerKm : 5;
+    const minFee = Number.isFinite(config.deliveryMinFee) ? config.deliveryMinFee : 0;
+    const estimatedFee = Math.max(minFee, roundedKm * rate);
+
+    res.json({
+      origin: origin.displayName,
+      destination: destination.displayName,
+      distance_km: distanceKm,
+      rounded_km: roundedKm,
+      rate_per_km: rate,
+      min_fee: minFee,
+      fee: estimatedFee,
+      currency: "PLN",
+    });
+  } catch (error) {
+    console.error('Error estimating delivery:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/reverse-geocode", async (req, res) => {
+  try {
+    const lat = req.query.lat ? Number.parseFloat(req.query.lat) : null;
+    const lon = req.query.lon ? Number.parseFloat(req.query.lon) : null;
+
+    if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      return res.status(400).json({ error: "Valid lat and lon are required" });
+    }
+
+    const result = await reverseGeocodeCoordinates(lat, lon);
+    if (!result) {
+      return res.status(400).json({ error: "Address not found" });
+    }
+
+    res.json(result);
+  } catch (error) {
+    console.error('Error reverse geocoding:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Exchange rate cache
+let exchangeRateCache = {
+  rate: 11.6,
+  timestamp: 0
+};
+
+const EXCHANGE_RATE_CACHE_TIME = 3600000; // 1 hour in ms
+
+app.get("/api/exchange-rate", async (req, res) => {
+  try {
+    const now = Date.now();
+
+    // Return cached rate if fresh (updated within last hour)
+    if (exchangeRateCache.rate && (now - exchangeRateCache.timestamp) < EXCHANGE_RATE_CACHE_TIME) {
+      return res.json({
+        rate: exchangeRateCache.rate,
+        from: 'PLN',
+        to: 'UAH',
+        cached: true
+      });
+    }
+
+    // Fetch fresh rate from API
+    const url = 'https://api.exchangerate-api.com/v4/latest/PLN';
+    const response = await fetch(url);
+
+    if (!response.ok) {
+      console.warn('Failed to fetch exchange rate, using cached value');
+      return res.json({
+        rate: exchangeRateCache.rate,
+        from: 'PLN',
+        to: 'UAH',
+        cached: true,
+        error: 'API unavailable, using cached rate'
+      });
+    }
+
+    const data = await response.json();
+    const rate = data.rates?.UAH;
+
+    if (rate && Number.isFinite(rate)) {
+      exchangeRateCache.rate = rate;
+      exchangeRateCache.timestamp = now;
+
+      res.json({
+        rate: rate,
+        from: 'PLN',
+        to: 'UAH',
+        cached: false
+      });
+    } else {
+      throw new Error('Invalid rate data');
+    }
+  } catch (error) {
+    console.error('Error fetching exchange rate:', error);
+    res.json({
+      rate: exchangeRateCache.rate,
+      from: 'PLN',
+      to: 'UAH',
+      cached: true,
+      error: error.message
+    });
+  }
+});
+
+// Orders
+app.post("/api/orders", async (req, res) => {
+  try {
+    const { telegram_id: requestedTelegramId, items, total_price, payment_method, delivery_type, delivery_address, pickup_location, customer_notes, promocode, user_data, init_data, delivery_estimate } = req.body;
+
+    if (!init_data || !verifyTelegramData(init_data)) {
+      console.error('❌ Invalid init_data for order');
+      return res.status(401).json({ error: "Invalid Telegram data" });
+    }
+
+    const initUser = getTelegramUserFromInitData(init_data);
+    if (!initUser?.id) {
+      console.error('❌ Missing user in init_data');
+      return res.status(400).json({ error: "Missing Telegram user" });
+    }
+
+    const telegram_id = initUser.id;
+    const normalizedUserData = {
+      username: (initUser.username || user_data?.username || '').trim() || null,
+      firstName: (initUser.first_name || user_data?.first_name || '').trim() || null,
+      lastName: (initUser.last_name || user_data?.last_name || '').trim() || null
+    };
+
+    console.log('📦 Order request:', {
+      telegram_id,
+      requested_telegram_id: requestedTelegramId || null,
+      username: normalizedUserData.username || null,
+      items: items?.length,
+      total_price,
+      payment_method,
+      delivery_type,
+      delivery_estimate,
+      delivery_address: delivery_address ? '✅ provided' : '❌ missing'
+    });
+
+    // Перевірка складу перед створенням замовлення
+    const productById = new Map();
+    if (items && items.length > 0) {
+      for (const item of items) {
+        const product = await prisma.product.findUnique({
+          where: { id: item.product_id }
+        });
+
+        if (!product) {
+          return res.status(404).json({ error: `Товар з ID ${item.product_id} не знайдено` });
+        }
+
+        if (product.stockQuantity < item.quantity) {
+          return res.status(400).json({
+            error: `${product.name}: недостатньо на складі. Доступно: ${product.stockQuantity}, замовлено: ${item.quantity}`
+          });
+        }
+
+        productById.set(item.product_id, product);
+      }
+    }
+
+    // Знайти або створити користувача
+    let user = await getOrCreateUser(telegram_id, {
+      username: normalizedUserData.username || `user${telegram_id}`,
+      firstName: normalizedUserData.firstName || 'User',
+      lastName: normalizedUserData.lastName || null,
+    });
+
+    console.log('✅ User ready:', {
+      id: user.id,
+      telegramId: user.telegramId.toString(),
+      referralCode: user.referralCode,
+    });
+
+    const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`;
+
+    // Вирахування товарів зі складу
+    if (items && items.length > 0) {
+      for (const item of items) {
+        await prisma.product.update({
+          where: { id: item.product_id },
+          data: {
+            stockQuantity: {
+              decrement: item.quantity
+            }
+          }
+        });
+        console.log(`📝 Stock reduced for product ${item.product_id} by ${item.quantity}`);
+      }
+    }
+
+    const itemsTotal = Array.isArray(items)
+      ? items.reduce((sum, item) => {
+        const product = productById.get(item.product_id);
+        const price = product?.price ?? Number(item.price) ?? 0;
+        return sum + (price * (item.quantity || 0));
+      }, 0)
+      : 0;
+
+    const normalizedPromoCode = promocode ? String(promocode).trim().toUpperCase() : null;
+    let discountAmount = 0;
+    let promoRecord = null;
+
+    if (normalizedPromoCode) {
+      promoRecord = await prisma.promoCode.findUnique({ where: { code: normalizedPromoCode } });
+      const validation = validatePromoForTotal(promoRecord, itemsTotal);
+      if (!validation.valid) {
+        return res.status(400).json({ error: validation.message || "Invalid or expired promo code" });
+      }
+      discountAmount = validation.discount;
+    }
+
+    // Apply referral rewards on next order
+    let referralDiscount = 0;
+    const pendingRewards = await prisma.referralReward.findMany({
+      where: {
+        referredTelegramId: BigInt(telegram_id),
+        status: 'pending'
+      }
+    });
+
+    if (pendingRewards.length > 0) {
+      // Use the first pending reward
+      const reward = pendingRewards[0];
+      referralDiscount = reward.rewardAmount;
+
+      // Update the reward status to 'used'
+      await prisma.referralReward.update({
+        where: { id: reward.id },
+        data: {
+          status: 'used',
+          usedAt: new Date()
+        }
+      });
+
+      // Decrease the referrer's reward balance
+      await prisma.user.update({
+        where: { telegramId: reward.referrerTelegramId },
+        data: {
+          referralRewardRemaining: {
+            decrement: referralDiscount
+          }
+        }
+      });
+
+      console.log(`✅ Applied referral discount: ${referralDiscount} zl for user ${telegram_id}`);
+    }
+
+    const baseTotal = Math.max(itemsTotal - discountAmount - referralDiscount, 0);
+    const deliveryEstimateValue = Number(delivery_estimate);
+    const deliveryEstimate = delivery_type === 'delivery' && Number.isFinite(deliveryEstimateValue) && deliveryEstimateValue > 0
+      ? deliveryEstimateValue
+      : 0;
+    const finalTotal = baseTotal + deliveryEstimate;
+
+    // Build admin notes including referral discount
+    let orderAdminNotes = '';
+    if (deliveryEstimate > 0) {
+      orderAdminNotes = `Delivery fee estimate ${deliveryEstimate.toFixed(2)} zl`;
+    }
+    if (referralDiscount > 0) {
+      const note = `Referral discount applied: -${referralDiscount.toFixed(2)} zl`;
+      orderAdminNotes = orderAdminNotes ? `${orderAdminNotes} | ${note}` : note;
+    }
+
+    const order = await prisma.order.create({
+      data: {
+        telegramId: BigInt(telegram_id),
+        orderNumber,
+        items,
+        totalPrice: finalTotal,
+        paymentMethod: payment_method,
+        deliveryAddress: delivery_address || null,
+        pickupLocation: pickup_location || null,
+        customerNotes: customer_notes || null,
+        adminNotes: orderAdminNotes || null,
+        promocode: normalizedPromoCode,
+        discountAmount: discountAmount + referralDiscount,
+        status: "pending",
+      },
+    });
+
+    if (promoRecord) {
+      await prisma.promoCode.update({
+        where: { code: normalizedPromoCode },
+        data: { usedCount: { increment: 1 } },
+      });
+    }
+
+    console.log('✅ Order created:', {
+      orderNumber: order.orderNumber,
+      telegram_id,
+      username: user?.username || null,
+      items: items?.length || 0,
+      total_price: finalTotal,
+      delivery_type: delivery_type,
+      delivery_fee: deliveryEstimate,
+      delivery_address: delivery_address || null,
+      baseTotal: baseTotal
+    });
+
+    // Convert BigInt to string for JSON serialization
+    const orderResponse = {
+      id: order.id,
+      telegramId: order.telegramId.toString(),
+      orderNumber: order.orderNumber,
+      items: order.items,
+      totalPrice: order.totalPrice,
+      paymentMethod: order.paymentMethod,
+      deliveryAddress: order.deliveryAddress,
+      pickupLocation: order.pickupLocation,
+      customerNotes: order.customerNotes,
+      status: order.status,
+      createdAt: order.createdAt,
+    };
+
+    // Send notification to client
+    try {
+      // Build items list for client notification
+      let clientItemsText = 'Товари:';
+      if (items && items.length > 0) {
+        const clientItemsDetails = [];
+        for (const item of items) {
+          const product = await prisma.product.findUnique({
+            where: { id: item.product_id }
+          });
+          const productName = product ? product.name : `Товар ID ${item.product_id}`;
+          clientItemsDetails.push(`${clientItemsDetails.length + 1}. ${productName} x${item.quantity}`);
+        }
+        clientItemsText = clientItemsDetails.join('\n');
+      }
+
+      // Build delivery info
+      let deliveryInfoText = '';
+      if (delivery_type === 'delivery') {
+        deliveryInfoText = `🚚 <b>Доставка:</b> ${delivery_address || 'адреса буде уточнена'}\n`;
+        if (deliveryEstimate > 0) {
+          deliveryInfoText += `💳 <b>Вартість доставки:</b> ${deliveryEstimate.toFixed(2)} zł\n`;
+        }
+      } else if (delivery_type === 'pickup') {
+        deliveryInfoText = `📍 <b>Самовивіз:</b> ${pickup_location || 'локація буде уточнена'}\n`;
+      }
+
+      const exchangeRate = exchangeRateCache?.rate || 11.6;
+      const totalUah = Math.round(finalTotal * exchangeRate * 100) / 100;
+      const totalText = payment_method === 'card'
+        ? `${finalTotal.toFixed(2)} zł (${totalUah.toFixed(2)} грн)`
+        : `${finalTotal.toFixed(2)} zł`;
+
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: telegram_id,
+          text: `✅ <b>Ваше замовлення створене!</b>\n\n📦 <b>Номер замовлення:</b> #${orderNumber}\n\n📋 <b>Ваші товари:</b>\n${clientItemsText}\n\n${deliveryInfoText}💳 <b>Спосіб оплати:</b> ${payment_method === 'cash' ? '💰 Готівка' : (payment_method === 'card' ? '💳 Карта' : '₿ USDT')}\n\n💰 <b>Сума:</b> ${totalText}\n\n⏳ <b>Статус:</b> Очікує підтвердження\n\nМи скоро зв'яжемось з вами для підтвердження замовлення.`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '💬 Написати адміну', callback_data: `reply_admin` }
+            ]]
+          }
+        })
+      });
+      console.log('✅ Notification sent to client:', telegram_id);
+    } catch (notificationError) {
+      console.error('⚠️ Failed to send client notification:', notificationError);
+    }
+
+    // Send notification to admin
+    try {
+      // Get product names
+      let itemsText = 'Немає товарів';
+      if (items && items.length > 0) {
+        const itemsDetails = [];
+        for (const item of items) {
+          const product = await prisma.product.findUnique({
+            where: { id: item.product_id }
+          });
+          const productName = product ? product.name : `Товар ID ${item.product_id}`;
+          const itemPrice = item.price * item.quantity;
+          itemsDetails.push(`${itemsDetails.length + 1}. ${productName} x${item.quantity} = ${itemPrice.toFixed(2)} zł`);
+        }
+        // Add delivery fee if applicable
+        if (delivery_type === 'delivery' && deliveryEstimate > 0) {
+          itemsDetails.push(`🚚 <b>Доставка</b> = ${deliveryEstimate.toFixed(2)} zł`);
+        }
+        itemsText = itemsDetails.join('\n');
+      }
+
+      // Get client info
+      const clientName = [user?.firstName, user?.lastName].filter(Boolean).join(' ').trim();
+      const clientUsername = user?.username ? `@${user.username}` : 'без username';
+      const clientInfo = clientName ? `${clientName} (${clientUsername})` : clientUsername;
+      const clientLink = `<a href="tg://user?id=${telegram_id}">відкрити профіль</a>`;
+
+      // Format payment method
+      const paymentMethodMap = {
+        'cash': '💰 Готівка',
+        'card': '💳 Укр. Карта',
+        'usdt': '₿ USDT'
+      };
+      const paymentMethodText = paymentMethodMap[payment_method] || payment_method || 'Не вказано';
+
+      // Format delivery type
+      const deliveryTypeMap = {
+        'delivery': '🚚 Доставка',
+        'pickup': '📍 Самовивіз'
+      };
+      const deliveryTypeText = deliveryTypeMap[delivery_type] || delivery_type || 'Не вказано';
+
+      const exchangeRate = exchangeRateCache?.rate || 11.6;
+      const totalUah = Math.round(finalTotal * exchangeRate * 100) / 100;
+      const totalText = payment_method === 'card'
+        ? `${finalTotal.toFixed(2)} zł (${totalUah.toFixed(2)} грн)`
+        : `${finalTotal.toFixed(2)} zł`;
+
+      await sendToAllAdmins({
+        text: `🛒 <b>НОВЕ ЗАМОВЛЕННЯ!</b>\n\n👤 Клієнт: <b>${clientInfo}</b>\n🔗 ${clientLink}\n🆔 ID: <code>${telegram_id}</code>\n📦 Номер: <b>#${orderNumber}</b>\n💳 Оплата: ${paymentMethodText}\n📍 Тип доставки: ${deliveryTypeText}\n${delivery_address ? `🗺️ Адреса: ${delivery_address}\n` : ''}${pickup_location ? `🗺️ Локація: ${pickup_location}\n` : ''}💰 Сума: <b>${totalText}</b>\n\n📋 <b>Товари:</b>\n${itemsText}${customer_notes ? `\n\n📝 Примітка: ${customer_notes}` : ''}`,
+        parse_mode: 'HTML',
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '💬 Написати клієнту', callback_data: `msg_${telegram_id}` }
+          ]]
+        }
+      });
+      console.log('✅ Admin notifications sent to all admins');
+    } catch (adminNotificationError) {
+      console.error('⚠️ Failed to send admin notification:', adminNotificationError);
+    }
+
+    // Process referral code if provided
+    const referralCode = req.body.referral_code ? String(req.body.referral_code).trim().toUpperCase() : null;
+    if (referralCode) {
+      try {
+        // Find referrer by code
+        const referrer = await prisma.user.findUnique({
+          where: { referralCode: referralCode }
+        });
+
+        if (referrer && referrer.telegramId !== BigInt(telegram_id)) {
+          // Check if this referrer hasn't rewarded this user before (uniqueness)
+          const existingReward = await prisma.referralReward.findUnique({
+            where: {
+              referrerTelegramId_referredTelegramId: {
+                referrerTelegramId: referrer.telegramId,
+                referredTelegramId: BigInt(telegram_id)
+              }
+            }
+          });
+
+          if (!existingReward) {
+            // Create referral reward
+            await prisma.referralReward.create({
+              data: {
+                referrerTelegramId: referrer.telegramId,
+                referredTelegramId: BigInt(telegram_id),
+                rewardAmount: 10,
+                status: 'pending'
+              }
+            });
+
+            // Update referrer's reward balance
+            await prisma.user.update({
+              where: { telegramId: referrer.telegramId },
+              data: {
+                referralRewardRemaining: {
+                  increment: 10
+                }
+              }
+            });
+
+            // Notify referrer about reward
+            const referrerName = [referrer.firstName, referrer.lastName].filter(Boolean).join(' ').trim() || referrer.username;
+            await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: referrer.telegramId.toString(),
+                text: `🎉 <b>Твій друг зробив перше замовлення!</b>\n\n👤 Передано: замовлення з кодом [${referralCode}]\n💰 Ти отримав -10 zł на наступне замовлення! Це зараз у твоєму балансі.\n\nДякуємо за референальний маркетинг! 🙌`,
+                parse_mode: 'HTML'
+              })
+            }).catch(err => console.error('Failed to notify referrer:', err));
+
+            console.log('✅ Referral reward created for referrer:', referrer.telegramId);
+          } else {
+            console.log('⚠️ Referral already processed for this user pair');
+          }
+        } else if (!referrer) {
+          console.log('⚠️ Invalid referral code:', referralCode);
+        }
+      } catch (referralError) {
+        console.error('⚠️ Error processing referral:', referralError);
+      }
+    }
+
+    res.status(201).json(orderResponse);
+  } catch (error) {
+    console.error('Order creation error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/orders/user/:telegramId", async (req, res) => {
+  try {
+    const telegramId = req.params.telegramId;
+    console.log('📦 Getting orders for telegramId:', telegramId);
+
+    const orders = await prisma.order.findMany({
+      where: { telegramId: BigInt(telegramId) },
+      include: { products: true },
+      orderBy: { createdAt: "desc" },
+    });
+
+    console.log(`📦 Found ${orders.length} orders for telegramId: ${telegramId}`);
+
+    // Serialize BigInt values
+    const serializedOrders = orders.map(order => ({
+      id: order.id,
+      telegramId: order.telegramId.toString(),
+      orderNumber: order.orderNumber,
+      items: order.items,
+      totalPrice: order.totalPrice,
+      paymentMethod: order.paymentMethod,
+      deliveryAddress: order.deliveryAddress,
+      pickupLocation: order.pickupLocation,
+      customerNotes: order.customerNotes,
+      status: order.status,
+      createdAt: order.createdAt,
+    }));
+
+    res.json(serializedOrders);
+  } catch (error) {
+    console.error('❌ Error getting orders:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/orders/admin/all", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const orders = await prisma.order.findMany({
+      include: { products: true },
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(orders);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Endpoint для отримання замовлень клієнта
+app.get("/api/users/:telegramId/orders", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const telegramId = req.params.telegramId;
+    console.log('📥 Fetching orders for telegramId:', telegramId);
+
+    if (!telegramId || isNaN(telegramId)) {
+      return res.status(400).json({ error: "Invalid telegramId format" });
+    }
+
+    const orders = await prisma.order.findMany({
+      where: { telegramId: BigInt(telegramId) },
+      orderBy: { createdAt: "desc" },
+    });
+
+    console.log('✅ Orders found:', orders.length);
+    res.json(orders);
+  } catch (error) {
+    console.error('❌ Error fetching orders:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/orders/:orderId", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const { status, adminNotes } = req.body;
+    const order = await prisma.order.update({
+      where: { id: parseInt(req.params.orderId, 10) },
+      data: { status, adminNotes },
+    });
+    res.json(order);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Підтвердження замовлення адміном
+app.put("/api/orders/:orderId/confirm", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const orderId = parseInt(req.params.orderId, 10);
+    const order = await prisma.order.update({
+      where: { id: orderId },
+      data: { status: 'confirmed' },
+      include: { products: true }
+    });
+
+    console.log(`✅ Order ${orderId} confirmed by admin`);
+
+    // Send confirmation message to client
+    try {
+      // Get product names for the message
+      let itemsText = 'Товари:';
+      if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+        const itemsDetails = [];
+        for (const item of order.items) {
+          const product = await prisma.product.findUnique({
+            where: { id: item.product_id }
+          });
+          const productName = product ? product.name : `Товар ID ${item.product_id}`;
+          itemsDetails.push(`${itemsDetails.length + 1}. ${productName} x${item.quantity}`);
+        }
+        itemsText = itemsDetails.join('\n');
+      }
+
+      const exchangeRate = exchangeRateCache?.rate || 11.6;
+      const totalUah = Math.round(order.totalPrice * exchangeRate * 100) / 100;
+      const totalText = order.paymentMethod === 'card'
+        ? `${order.totalPrice.toFixed(2)} zł (${totalUah.toFixed(2)} грн)`
+        : `${order.totalPrice.toFixed(2)} zł`;
+
+      // Extract delivery fee from adminNotes - try multiple patterns
+      const feePatterns = [
+        /Delivery fee(?:\s*(?:\+|set to|estimate))?\s*([0-9]+(?:\.[0-9]+)?)\s*zl/i,
+        /Доставка\s*[=:]\s*([0-9]+(?:\.[0-9]+)?)\s*zl/i,
+        /([0-9]+(?:\.[0-9]+)?)\s*zl?\s*(?:доставка|delivery)/i
+      ];
+
+      let deliveryFee = null;
+      if (order.adminNotes) {
+        for (const pattern of feePatterns) {
+          const match = order.adminNotes.match(pattern);
+          if (match) {
+            deliveryFee = Number.parseFloat(match[1]);
+            break;
+          }
+        }
+      }
+
+      // If delivery fee not found in notes but it's a delivery order, calculate it
+      if (deliveryFee === null && order.deliveryAddress) {
+        const basePrice = order.totalPrice; // This might include the fee, but we'll show delivery separately if we can find it
+      }
+
+      let deliveryInfo = '';
+      if (order.deliveryAddress) {
+        deliveryInfo = `🚚 <b>Доставка:</b> ${order.deliveryAddress}`;
+        if (deliveryFee && deliveryFee > 0) {
+          deliveryInfo += `\n💳 <b>Вартість доставки:</b> ${deliveryFee.toFixed(2)} zł`;
+        }
+      } else if (order.pickupLocation) {
+        deliveryInfo = `📍 <b>Самовивіз:</b> ${order.pickupLocation}`;
+      }
+
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: order.telegramId.toString(),
+          text: `✅ <b>Ваше замовлення підтверджено!</b>\n\n📦 <b>Номер замовлення:</b> #${order.orderNumber}\n\n📋 <b>Ваші товари:</b>\n${itemsText}\n\n💳 <b>Спосіб оплати:</b> ${order.paymentMethod === 'cash' ? '💰 Готівка' : (order.paymentMethod === 'card' ? '💳 Карта' : '₿ USDT')}\n\n${deliveryInfo}\n\n💰 <b>Загальна сума:</b> ${totalText}\n\n⏳ <b>Що далі?</b>\nНевдовзі з вами зв'яжеться адміністратор для уточнення деталей.\n\n📞 Якщо у вас є питання, натисніть кнопку нижче:`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '💬 Написати адміну', callback_data: 'reply_admin' }
+            ]]
+          }
+        })
+      });
+      console.log('✅ Confirmation message sent to client:', order.telegramId.toString());
+    } catch (clientNotificationError) {
+      console.error('⚠️ Failed to send client confirmation:', clientNotificationError);
+    }
+
+    res.json(order);
+  } catch (error) {
+    console.error('Error confirming order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/orders/:orderId/delivery-fee", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const orderId = parseInt(req.params.orderId, 10);
+    const feeRaw = req.body?.deliveryFee;
+    const fee = Number(feeRaw);
+
+    if (!Number.isFinite(fee) || fee <= 0) {
+      return res.status(400).json({ error: "Invalid delivery fee" });
+    }
+
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    const note = req.body?.note ? String(req.body.note).trim() : "";
+    const feeNote = `Delivery fee +${fee.toFixed(2)} zl${note ? `: ${note}` : ""}`;
+    const updatedNotes = [order.adminNotes, feeNote].filter(Boolean).join(" | ");
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        totalPrice: order.totalPrice + fee,
+        adminNotes: updatedNotes,
+      },
+    });
+
+    if (config.botToken) {
+      const clientMessage = `🚚 До замовлення #${order.orderNumber} додано доставку: +${fee.toFixed(2)} zł.\n💰 Нова сума: ${updatedOrder.totalPrice.toFixed(2)} zł.${note ? `\n📝 Коментар: ${note}` : ''}`;
+      try {
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: order.telegramId.toString(),
+            text: clientMessage,
+          }),
+        });
+      } catch (notifyError) {
+        console.error('Error notifying client about delivery fee:', notifyError);
+      }
+    }
+
+    res.json(updatedOrder);
+  } catch (error) {
+    console.error('Error adding delivery fee:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.put("/api/orders/:orderId/delivery-fee", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const orderId = parseInt(req.params.orderId, 10);
+    const feeRaw = req.body?.deliveryFee;
+    const fee = Number(feeRaw);
+
+    if (!Number.isFinite(fee) || fee <= 0) {
+      return res.status(400).json({ error: "Invalid delivery fee" });
+    }
+
+    const order = await prisma.order.findUnique({ where: { id: orderId } });
+    if (!order) {
+      return res.status(404).json({ error: "Order not found" });
+    }
+
+    const note = req.body?.note ? String(req.body.note).trim() : "";
+    const feePattern = /Delivery fee(?:\s*(?:\+|set to|estimate))?\s*([0-9]+(?:\.[0-9]+)?)\s*zl/i;
+    const previousMatch = order.adminNotes ? order.adminNotes.match(feePattern) : null;
+    const previousFee = previousMatch ? Number.parseFloat(previousMatch[1]) : 0;
+    const baseTotal = Math.max(order.totalPrice - (Number.isFinite(previousFee) ? previousFee : 0), 0);
+    const nextTotal = baseTotal + fee;
+
+    const feeNote = `Delivery fee set to ${fee.toFixed(2)} zl${note ? `: ${note}` : ""}`;
+    const cleanedNotes = (order.adminNotes || '').replace(feePattern, '').trim();
+    const updatedNotes = [cleanedNotes, feeNote].filter(Boolean).join(' | ');
+
+    const updatedOrder = await prisma.order.update({
+      where: { id: orderId },
+      data: {
+        totalPrice: nextTotal,
+        adminNotes: updatedNotes,
+      },
+    });
+
+    if (config.botToken) {
+      const clientMessage = `🚚 До замовлення #${order.orderNumber} встановлено доставку: ${fee.toFixed(2)} zł.\n💰 Нова сума: ${updatedOrder.totalPrice.toFixed(2)} zł.${note ? `\n📝 Коментар: ${note}` : ''}`;
+      try {
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: order.telegramId.toString(),
+            text: clientMessage,
+          }),
+        });
+      } catch (notifyError) {
+        console.error('Error notifying client about delivery fee:', notifyError);
+      }
+    }
+
+    res.json(updatedOrder);
+  } catch (error) {
+    console.error('Error setting delivery fee:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin: reassign orders from one user to another
+app.post("/api/orders/reassign", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const { fromTelegramId, toTelegramId, orderNumbers } = req.body || {};
+
+    if (!fromTelegramId || !toTelegramId) {
+      return res.status(400).json({ error: "fromTelegramId and toTelegramId are required" });
+    }
+
+    const where = {
+      telegramId: BigInt(fromTelegramId)
+    };
+
+    if (Array.isArray(orderNumbers) && orderNumbers.length > 0) {
+      where.orderNumber = { in: orderNumbers };
+    }
+
+    const result = await prisma.order.updateMany({
+      where,
+      data: { telegramId: BigInt(toTelegramId) }
+    });
+
+    console.log('🔁 Orders reassigned:', {
+      fromTelegramId,
+      toTelegramId,
+      orderNumbersCount: Array.isArray(orderNumbers) ? orderNumbers.length : 0,
+      updatedCount: result.count
+    });
+
+    res.json({
+      message: "Orders reassigned",
+      updatedCount: result.count
+    });
+  } catch (error) {
+    console.error('❌ Error reassigning orders:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Видалення замовлення адміном
+app.delete("/api/orders/:orderId", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const orderId = parseInt(req.params.orderId, 10);
+
+    // 1. Отримати всі товари в замовленні та повернути їх на склад
+    const orderProducts = await prisma.orderProduct.findMany({
+      where: { orderId: orderId }
+    });
+
+    console.log(`📦 Found ${orderProducts.length} products in order ${orderId}`);
+
+    // Повертаємо stock для кожного товару
+    for (const orderProduct of orderProducts) {
+      const updated = await prisma.product.update({
+        where: { id: orderProduct.productId },
+        data: {
+          stockQuantity: {
+            increment: orderProduct.quantity
+          }
+        }
+      });
+      console.log(`✅ Restored stock for product ${orderProduct.productId}: +${orderProduct.quantity} (new total: ${updated.stockQuantity})`);
+    }
+
+    // 2. Видалити пов'язаніOrderProduct записи
+    const orderProductsDeleted = await prisma.orderProduct.deleteMany({
+      where: { orderId: orderId }
+    });
+    console.log(`🗑️ Deleted ${orderProductsDeleted.count} order products`);
+
+    // 3. Видалити саме замовлення
+    const deletedOrder = await prisma.order.delete({
+      where: { id: orderId }
+    });
+
+    console.log(`✅ Order ${orderId} deleted by admin (stock restored)`);
+    res.json({
+      message: "Order deleted successfully and stock restored",
+      deletedOrder: deletedOrder,
+      orderProductsCount: orderProductsDeleted.count,
+      productsRestored: orderProducts.length
+    });
+  } catch (error) {
+    console.error('Error deleting order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Відправка повідомлення клієнту з WebApp
+app.post("/api/messages/send", async (req, res) => {
+  try {
+    const { clientId, message } = req.body;
+    const adminId = req.headers.adminid || req.headers.adminId;
+
+    // Перевірка що це адмін
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    if (!clientId || !message) {
+      return res.status(400).json({ error: "clientId and message are required" });
+    }
+
+    // Відправка повідомлення через Telegram Bot API
+    const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        chat_id: clientId,
+        text: `💬 <b>Повідомлення від VAPER:</b>\n\n${message}`,
+        parse_mode: 'HTML'
+      })
+    });
+
+    if (response.ok) {
+      res.json({ success: true, message: "Message sent successfully" });
+    } else {
+      const error = await response.json();
+      console.error('Telegram API error:', error);
+      res.status(500).json({ error: "Failed to send message", details: error });
+    }
+  } catch (error) {
+    console.error('Error sending message:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Масова розсилка всім користувачам бота
+app.post("/api/messages/broadcast", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const { message, includeAdmin } = req.body || {};
+    if (!message) {
+      return res.status(400).json({ error: "message is required" });
+    }
+
+    const users = await prisma.user.findMany({
+      select: { telegramId: true }
+    });
+
+    let sentCount = 0;
+    let failedCount = 0;
+
+    for (const user of users) {
+      const telegramId = user.telegramId.toString();
+      if (!includeAdmin && isAdminId(telegramId)) {
+        continue;
+      }
+
+      try {
+        const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: telegramId,
+            text: `💬 <b>Повідомлення від VAPER:</b>\n\n${message}`,
+            parse_mode: 'HTML'
+          })
+        });
+
+        if (response.ok) {
+          sentCount += 1;
+        } else {
+          failedCount += 1;
+        }
+      } catch (error) {
+        failedCount += 1;
+      }
+
+      await new Promise(resolve => setTimeout(resolve, 80));
+    }
+
+    res.json({
+      success: true,
+      sentCount,
+      failedCount
+    });
+  } catch (error) {
+    console.error('Error sending broadcast:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Promos
+app.get("/api/promocodes", async (req, res) => {
+  try {
+    const promos = await prisma.promoCode.findMany({
+      orderBy: { createdAt: "desc" },
+    });
+    res.json(promos.map(serializePromoCode));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/promocodes", async (req, res) => {
+  try {
+    const {
+      code,
+      discount_type,
+      discount_value,
+      max_uses,
+      min_purchase,
+      is_active,
+      expires_at,
+    } = req.body || {};
+
+    if (!code || !discount_type || !discount_value) {
+      return res.status(400).json({ error: "Missing promo fields" });
+    }
+
+    const normalizedCode = String(code).trim().toUpperCase();
+    const promo = await prisma.promoCode.create({
+      data: {
+        code: normalizedCode,
+        discountType: String(discount_type).trim(),
+        discountValue: Number(discount_value),
+        maxUses: max_uses ?? null,
+        minPurchase: min_purchase ?? null,
+        isActive: is_active !== false,
+        expiresAt: expires_at ? new Date(expires_at) : null,
+      },
+    });
+
+    res.status(201).json(serializePromoCode(promo));
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/promocodes/:code", async (req, res) => {
+  try {
+    const code = String(req.params.code || "").trim().toUpperCase();
+    const purchaseAmountRaw = req.query.purchase_amount ?? req.query.total ?? "0";
+    const purchaseAmount = Number.parseFloat(purchaseAmountRaw) || 0;
+
+    const promo = await prisma.promoCode.findUnique({ where: { code } });
+    const validation = validatePromoForTotal(promo, purchaseAmount);
+
+    if (!validation.valid) {
+      return res.json({ valid: false, message: validation.message || "Invalid or expired promo code" });
+    }
+
+    res.json({
+      valid: true,
+      promo: serializePromoCode(promo),
+      discount: validation.discount,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.delete("/api/promocodes/:code", async (req, res) => {
+  try {
+    const code = String(req.params.code || "").trim().toUpperCase();
+    if (!code) {
+      return res.status(400).json({ error: "Promo code is required" });
+    }
+
+    const promo = await prisma.promoCode.findUnique({ where: { code } });
+    if (!promo) {
+      return res.status(404).json({ error: "Promo code not found" });
+    }
+
+    await prisma.promoCode.delete({ where: { code } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/promos/validate", async (req, res) => {
+  try {
+    const { code, totalPrice } = req.body;
+    const promo = await prisma.promoCode.findUnique({ where: { code } });
+
+    if (!promo) return res.status(400).json({ error: "Invalid or expired promo code" });
+    if (!promo.isActive) return res.status(400).json({ error: "Invalid or expired promo code" });
+    if (promo.maxUses && promo.usedCount >= promo.maxUses) return res.status(400).json({ error: "Invalid or expired promo code" });
+    if (promo.expiresAt && promo.expiresAt < new Date()) return res.status(400).json({ error: "Invalid or expired promo code" });
+    if (promo.minPurchase && totalPrice < promo.minPurchase) return res.status(400).json({ error: "Invalid or expired promo code" });
+
+    const discount = promo.discountType === "percent" ? (totalPrice * promo.discountValue) / 100 : promo.discountValue;
+
+    res.json({
+      code: promo.code,
+      discountType: promo.discountType,
+      discountValue: promo.discountValue,
+      finalDiscount: discount,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/promos/apply", async (req, res) => {
+  try {
+    const { code } = req.body;
+    await prisma.promoCode.update({
+      where: { code },
+      data: { usedCount: { increment: 1 } },
+    });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// File upload endpoint
+app.post("/api/upload", upload.single('image'), (req, res) => {
+  try {
+    console.log('📸 Upload request received');
+    console.log('File:', req.file);
+    console.log('Body:', req.body);
+
+    if (!req.file) {
+      console.error('❌ No file in request');
+      return res.status(400).json({ error: "No file uploaded" });
+    }
+
+    // Повний URL з доменом
+    const fileUrl = `${config.backendUrl}/uploads/${req.file.filename}`;
+    console.log('✅ File uploaded successfully:', fileUrl);
+    res.json({
+      success: true,
+      filename: req.file.filename,
+      url: fileUrl,
+      path: fileUrl
+    });
+  } catch (error) {
+    console.error('❌ Upload error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Recommendations
+app.get("/api/recommendations/user/:userId", async (req, res) => {
+  try {
+    const recommendations = await prisma.recommendation.findMany({
+      where: { userId: parseInt(req.params.userId, 10) },
+      include: { product: true },
+    });
+    res.json(recommendations);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.post("/api/recommendations", async (req, res) => {
+  try {
+    const { userId, productId, score, reason } = req.body;
+    const recommendation = await prisma.recommendation.create({
+      data: { userId, productId, score, reason },
+    });
+    res.status(201).json(recommendation);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Seed (optional)
+async function seed() {
+  await prisma.orderProduct.deleteMany();
+  await prisma.order.deleteMany();
+  await prisma.recommendation.deleteMany();
+  await prisma.promoCode.deleteMany();
+  await prisma.product.deleteMany();
+  await prisma.user.deleteMany();
+
+  await prisma.user.create({
+    data: {
+      telegramId: BigInt(123456789),
+      username: "testuser",
+      firstName: "Test",
+      lastName: "User",
+      isAdmin: false,
+    },
+  });
+
+  await prisma.user.create({
+    data: {
+      telegramId: BigInt(1342762796),
+      username: "admin",
+      firstName: "Admin",
+      lastName: "User",
+      isAdmin: true,
+    },
+  });
+
+  // Товари більше не створюються автоматично
+  // Додавайте товари через адмін-панель
+  console.log("ℹ️ Skipping product creation - use admin panel to add products");
+
+  await prisma.promoCode.create({
+    data: {
+      code: "WELCOME10",
+      discountType: "percent",
+      discountValue: 10,
+      maxUses: 100,
+      usedCount: 0,
+      isActive: true,
+    },
+  });
+
+  await prisma.promoCode.create({
+    data: {
+      code: "SAVE50",
+      discountType: "fixed",
+      discountValue: 50,
+      maxUses: 50,
+      usedCount: 0,
+      isActive: true,
+      minPurchase: 200,
+    },
+  });
+
+  console.log("✅ Database seeded successfully!");
+}
+
+// Error handling
+app.use((err, req, res, next) => {
+  console.error(err);
+  res.status(500).json({
+    error: config.debug ? err.message : "Internal server error",
+  });
+});
+
+// Referral system endpoints
+
+// Get user's referral code
+app.get("/api/users/:telegramId/referral-code", async (req, res) => {
+  try {
+    const telegramId = BigInt(req.params.telegramId);
+    const user = await prisma.user.findUnique({
+      where: { telegramId },
+      select: { 
+        referralCode: true, 
+        referralRewardRemaining: true,
+        referrerTelegramId: true,
+        referralCodeUsed: true
+      }
+    });
+
+    if (!user) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    let referrerInfo = null;
+    if (user.referrerTelegramId) {
+      const referrer = await prisma.user.findUnique({
+        where: { telegramId: user.referrerTelegramId },
+        select: { 
+          username: true, 
+          firstName: true, 
+          lastName: true,
+          telegramId: true
+        }
+      });
+      
+      if (referrer) {
+        referrerInfo = {
+          telegramId: referrer.telegramId.toString(),
+          name: referrer.username || `${referrer.firstName || ''} ${referrer.lastName || ''}`.trim()
+        };
+      }
+    }
+
+    res.json({
+      referralCode: user.referralCode,
+      rewardRemaining: user.referralRewardRemaining,
+      referrerInfo: referrerInfo,
+      referralCodeUsed: user.referralCodeUsed
+    });
+  } catch (error) {
+    console.error('❌ Error getting referral code:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Get referral history for user (friends referred)
+app.get("/api/referral-rewards/:telegramId", async (req, res) => {
+  try {
+    const telegramId = BigInt(req.params.telegramId);
+
+    // Get rewards where user is the referrer (they invited others)
+    const referrals = await prisma.referralReward.findMany({
+      where: { referrerTelegramId: telegramId },
+      include: {
+        referred: {
+          select: { username: true, firstName: true, lastName: true }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const serialized = referrals.map(ref => ({
+      id: ref.id,
+      referredUserName: ref.referred.username || `${ref.referred.firstName} ${ref.referred.lastName}`.trim(),
+      rewardAmount: ref.rewardAmount,
+      status: ref.status,
+      createdAt: ref.createdAt,
+      usedAt: ref.usedAt
+    }));
+
+    res.json(serialized);
+  } catch (error) {
+    console.error('❌ Error getting referral rewards:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Admin endpoint: Get all referral activity
+app.get("/api/admin/referrals", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const referrals = await prisma.referralReward.findMany({
+      include: {
+        referrer: {
+          select: { username: true, firstName: true, lastName: true, telegramId: true }
+        },
+        referred: {
+          select: { username: true, firstName: true, lastName: true, telegramId: true }
+        }
+      },
+      orderBy: { createdAt: "desc" }
+    });
+
+    const serialized = referrals.map(ref => ({
+      id: ref.id,
+      referrer: {
+        telegramId: ref.referrer.telegramId.toString(),
+        name: ref.referrer.username || `${ref.referrer.firstName} ${ref.referrer.lastName}`.trim()
+      },
+      referred: {
+        telegramId: ref.referred.telegramId.toString(),
+        name: ref.referred.username || `${ref.referred.firstName} ${ref.referred.lastName}`.trim()
+      },
+      rewardAmount: ref.rewardAmount,
+      status: ref.status,
+      createdAt: ref.createdAt,
+      usedAt: ref.usedAt
+    }));
+
+    res.json(serialized);
+  } catch (error) {
+    console.error('❌ Error getting admin referrals:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Analytics endpoints
+app.get("/api/analytics/out-of-stock", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid;
+    if (!adminId || !isAdminId(adminId.toString())) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const outOfStock = await prisma.product.findMany({
+      where: {
+        OR: [
+          { inStock: false },
+          { stockQuantity: { lte: 0 } },
+          { stockQuantity: { lt: 2 } }
+        ]
+      },
+      orderBy: { name: "asc" }
+    });
+
+    const products = outOfStock.map(p => {
+      // Extract clean name (remove brand and technical specs)
+      let cleanName = p.name;
+      cleanName = cleanName.replace(/^(ELFLIQ|Chaser|One Hit|Lost Mary|.*?)\s+/i, '').trim();
+      cleanName = cleanName.replace(/\s*\([^)]*\)\s*/g, '').trim();
+      
+      const recommendedOrder = Math.max(5, 10 - p.stockQuantity);
+      
+      return {
+        id: p.id,
+        name: cleanName,
+        originalName: p.name,
+        category: p.category,
+        brand: p.brand || "",
+        price: p.price,
+        lastStockLevel: p.stockQuantity,
+        orderQuantity: recommendedOrder
+      };
+    });
+
+    res.json({ products });
+  } catch (error) {
+    console.error("Error fetching out of stock products:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/analytics/popular", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid;
+    if (!adminId || !isAdminId(adminId.toString())) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const orders = await prisma.order.findMany({
+      include: { products: true }
+    });
+
+    const productStats = {};
+    const allProducts = await prisma.product.findMany();
+
+    for (const order of orders) {
+      for (const orderProduct of order.products) {
+        if (!productStats[orderProduct.productId]) {
+          const product = allProducts.find(p => p.id === orderProduct.productId);
+          productStats[orderProduct.productId] = {
+            id: orderProduct.productId,
+            name: product?.name || "Unknown",
+            category: product?.category || "Unknown",
+            brand: product?.brand || "",
+            price: product?.price || 0,
+            totalUnitsSold: 0,
+            totalRevenue: 0,
+            orderCount: 0
+          };
+        }
+
+        productStats[orderProduct.productId].totalUnitsSold += orderProduct.quantity;
+        productStats[orderProduct.productId].totalRevenue += orderProduct.price * orderProduct.quantity;
+        productStats[orderProduct.productId].orderCount += 1;
+      }
+    }
+
+    const products = Object.values(productStats)
+      .sort((a, b) => b.totalUnitsSold - a.totalUnitsSold)
+      .slice(0, 50)
+      .map((p, idx) => ({
+        rank: idx + 1,
+        ...p,
+        averagePerOrder: p.orderCount > 0 ? (p.totalUnitsSold / p.orderCount).toFixed(2) : 0
+      }));
+
+    res.json({ products });
+  } catch (error) {
+    console.error("Error fetching popular products:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/analytics/velocity", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid;
+    if (!adminId || !isAdminId(adminId.toString())) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const orders = await prisma.order.findMany({
+      include: { products: true }
+    });
+
+    const productStats = {};
+    const allProducts = await prisma.product.findMany();
+    const now = new Date();
+
+    for (const order of orders) {
+      for (const orderProduct of order.products) {
+        if (!productStats[orderProduct.productId]) {
+          const product = allProducts.find(p => p.id === orderProduct.productId);
+          productStats[orderProduct.productId] = {
+            id: orderProduct.productId,
+            name: product?.name || "Unknown",
+            category: product?.category || "Unknown",
+            brand: product?.brand || "",
+            price: product?.price || 0,
+            totalUnitsSold: 0,
+            lastOrderDate: null
+          };
+        }
+
+        productStats[orderProduct.productId].totalUnitsSold += orderProduct.quantity;
+        const orderDate = new Date(order.createdAt);
+        if (!productStats[orderProduct.productId].lastOrderDate || orderDate > productStats[orderProduct.productId].lastOrderDate) {
+          productStats[orderProduct.productId].lastOrderDate = orderDate;
+        }
+      }
+    }
+
+    const products = Object.values(productStats)
+      .map(stat => {
+        const daysOnMarket = stat.lastOrderDate ? Math.max(1, (now - new Date(stat.lastOrderDate)) / (1000 * 60 * 60 * 24)) : 0;
+        const velocity = daysOnMarket > 0 ? stat.totalUnitsSold / daysOnMarket : 0;
+        return {
+          ...stat,
+          daysOnMarket: Math.round(daysOnMarket),
+          velocity: parseFloat(velocity.toFixed(2)),
+          estimatedDaysPerUnit: velocity > 0 ? parseFloat((1 / velocity).toFixed(2)) : "N/A"
+        };
+      })
+      .sort((a, b) => b.velocity - a.velocity)
+      .slice(0, 50)
+      .map((p, idx) => ({ rank: idx + 1, ...p }));
+
+    res.json({ products });
+  } catch (error) {
+    console.error("Error fetching product velocity:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/analytics/summary", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid;
+    if (!adminId || !isAdminId(adminId.toString())) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    const allProducts = await prisma.product.findMany();
+    const outOfStockProducts = allProducts.filter(p => !p.inStock || p.stockQuantity === 0);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const orders = await prisma.order.findMany();
+    const ordersToday = orders.filter(o => {
+      const orderDate = new Date(o.createdAt);
+      orderDate.setHours(0, 0, 0, 0);
+      return orderDate.getTime() === today.getTime();
+    }).length;
+    
+    const totalRevenue = orders.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+
+    res.json({
+      outOfStockCount: outOfStockProducts.length,
+      totalProductsCount: allProducts.length,
+      ordersToday,
+      totalRevenue: parseFloat(totalRevenue.toFixed(2))
+    });
+  } catch (error) {
+    console.error("Error fetching analytics summary:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/analytics/all", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid;
+    if (!adminId || !isAdminId(adminId.toString())) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // Fetch all analytics data
+    const outOfStockRes = await fetch(`http://localhost:${config.port}/api/analytics/out-of-stock`, {
+      headers: { adminid: adminId }
+    }).then(r => r.json());
+
+    const popularRes = await fetch(`http://localhost:${config.port}/api/analytics/popular`, {
+      headers: { adminid: adminId }
+    }).then(r => r.json());
+
+    const velocityRes = await fetch(`http://localhost:${config.port}/api/analytics/velocity`, {
+      headers: { adminid: adminId }
+    }).then(r => r.json());
+
+    const summaryRes = await fetch(`http://localhost:${config.port}/api/analytics/summary`, {
+      headers: { adminid: adminId }
+    }).then(r => r.json());
+
+    res.json({
+      generatedAt: new Date().toISOString(),
+      summary: summaryRes,
+      outOfStock: outOfStockRes,
+      popular: popularRes,
+      velocity: velocityRes
+    });
+  } catch (error) {
+    console.error("Error fetching all analytics:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/analytics/out-of-stock-report", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid;
+    if (!adminId || !isAdminId(adminId.toString())) {
+      return res.status(403).json({ error: "Unauthorized" });
+    }
+
+    // Get products that are out of stock OR have less than 2 items
+    const productsToReport = await prisma.product.findMany({
+      where: {
+        OR: [
+          { inStock: false },
+          { stockQuantity: { lte: 0 } },
+          { stockQuantity: { lt: 2 } }  // Also include products with < 2 items
+        ]
+      },
+      orderBy: { name: "asc" }
+    });
+
+    if (productsToReport.length === 0) {
+      return res.json({ success: true, messagesSent: 0, message: "Немає закінчених товарів" });
+    }
+
+    let messageText = `🔴 <b>ЗАКІНЧИЛОСЬ:</b>\n\n`;
+    
+    productsToReport.forEach(product => {
+      // Calculate recommended order quantity
+      const recommendedOrder = Math.max(5, 10 - product.stockQuantity);
+      
+      messageText += `${product.name} закінчився ${recommendedOrder}шт\n`;
+    });
+
+    const adminIdNum = adminId.toString();
+    let messagesSent = 0;
+
+    try {
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: adminIdNum,
+          text: messageText,
+          parse_mode: 'HTML'
+        })
+      });
+      messagesSent = 1;
+    } catch (error) {
+      console.error(`Error sending message:`, error);
+    }
+
+    res.json({ 
+      success: true, 
+      messagesSent,
+      itemsReported: productsToReport.length,
+      message: `Отправлено 1 повідомлення про ${productsToReport.length} товарів`
+    });
+  } catch (error) {
+    console.error("Error generating out of stock report:", error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Start server or seed
+if (process.argv.includes("--seed")) {
+  seed()
+    .catch((error) => {
+      console.error(error);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prisma.$disconnect();
+      process.exit(0);
+    });
+} else {
+  const PORT = config.port;
+
+  // Assign missing referral codes on startup
+  assignMissingReferralCodes()
+    .then(() => console.log('✅ Referral codes assigned to all users'))
+    .catch(err => console.error('⚠️ Error assigning referral codes:', err));
+
+  app.listen(PORT, () => {
+    console.log(`Server running on http://0.0.0.0:${PORT}`);
+    console.log(`Environment: ${config.env}`);
+  });
+}
+
+export default app;
