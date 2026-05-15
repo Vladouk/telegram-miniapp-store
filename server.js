@@ -1386,7 +1386,10 @@ app.post("/api/orders", async (req, res) => {
       telegramId: user.telegramId.toString(),
     });
 
-    const orderNumber = `ORD-${Date.now()}-${Math.random().toString(36).substring(7).toUpperCase()}`;
+    // Генеруємо послідовний номер замовлення
+    const lastOrder = await prisma.order.findFirst({ orderBy: { id: 'desc' } });
+    const nextNum = lastOrder ? lastOrder.id + 1 : 1;
+    const orderNumber = `ORDER-${nextNum}`;
 
     // Вирахування товарів зі складу
     if (items && items.length > 0) {
@@ -1514,11 +1517,7 @@ app.post("/api/orders", async (req, res) => {
         deliveryInfoText = `📍 <b>Самовивіз:</b> ${pickup_location || 'локація буде уточнена'}\n`;
       }
 
-      const exchangeRate = exchangeRateCache?.rate || 11.6;
-      const totalUah = Math.round(finalTotal * exchangeRate * 100) / 100;
-      const totalText = payment_method === 'card'
-        ? `${finalTotal.toFixed(2)} грн (${totalUah.toFixed(2)} грн)`
-        : `${finalTotal.toFixed(2)} грн`;
+      const totalText = `${finalTotal.toFixed(2)} грн`;
 
       await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
         method: "POST",
@@ -1580,11 +1579,7 @@ app.post("/api/orders", async (req, res) => {
       };
       const deliveryTypeText = deliveryTypeMap[delivery_type] || delivery_type || 'Не вказано';
 
-      const exchangeRate = exchangeRateCache?.rate || 11.6;
-      const totalUah = Math.round(finalTotal * exchangeRate * 100) / 100;
-      const totalText = payment_method === 'card'
-        ? `${finalTotal.toFixed(2)} грн (${totalUah.toFixed(2)} грн)`
-        : `${finalTotal.toFixed(2)} грн`;
+      const totalText = `${finalTotal.toFixed(2)} грн`;
 
       await sendToAllAdmins({
         text: `🛒 <b>НОВЕ ЗАМОВЛЕННЯ!</b>\n\n👤 Клієнт: <b>${clientInfo}</b>\n🔗 ${clientLink}\n🆔 ID: <code>${telegram_id}</code>\n📦 Номер: <b>#${orderNumber}</b>\n💳 Оплата: ${paymentMethodText}\n📍 Тип доставки: ${deliveryTypeText}\n${delivery_address ? `🗺️ Адреса: ${delivery_address}\n` : ''}${pickup_location ? `🗺️ Локація: ${pickup_location}\n` : ''}💰 Сума: <b>${totalText}</b>\n\n📋 <b>Товари:</b>\n${itemsText}${customer_notes ? `\n\n📝 Примітка: ${customer_notes}` : ''}`,
@@ -1799,16 +1794,13 @@ app.put("/api/orders/:orderId/confirm", async (req, res) => {
             where: { id: item.product_id }
           });
           const productName = product ? product.name : `Товар ID ${item.product_id}`;
-          itemsDetails.push(`${itemsDetails.length + 1}. ${productName} x${item.quantity}`);
+          const emoji = product?.emoji || '📦';
+          itemsDetails.push(`${itemsDetails.length + 1}. ${emoji} ${productName} x${item.quantity} — ${(item.price * item.quantity).toFixed(2)} грн`);
         }
         itemsText = itemsDetails.join('\n');
       }
 
-      const exchangeRate = exchangeRateCache?.rate || 11.6;
-      const totalUah = Math.round(order.totalPrice * exchangeRate * 100) / 100;
-      const totalText = order.paymentMethod === 'card'
-        ? `${order.totalPrice.toFixed(2)} грн (${totalUah.toFixed(2)} грн)`
-        : `${order.totalPrice.toFixed(2)} грн`;
+      const totalText = `${order.totalPrice.toFixed(2)} грн`;
 
       // Extract delivery fee from adminNotes - try multiple patterns
       const feePatterns = [
@@ -1848,7 +1840,7 @@ app.put("/api/orders/:orderId/confirm", async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: order.telegramId.toString(),
-          text: `✅ <b>Ваше замовлення підтверджено!</b>\n\n📦 <b>Номер замовлення:</b> #${order.orderNumber}\n\n📋 <b>Ваші товари:</b>\n${itemsText}\n\n💳 <b>Спосіб оплати:</b> ${order.paymentMethod === 'cash' ? '💰 Готівка' : (order.paymentMethod === 'card' ? '💳 Карта' : '₿ USDT')}\n\n${deliveryInfo}\n\n💰 <b>Загальна сума:</b> ${totalText}\n\n⏳ <b>Що далі?</b>\nНевдовзі з вами зв'яжеться адміністратор для уточнення деталей.\n\n📞 Якщо у вас є питання, натисніть кнопку нижче:`,
+          text: `✅ <b>Адміністратор підтвердив ваше замовлення!</b>\n\n📦 <b>Номер:</b> #${order.orderNumber}\n\n📋 <b>Ваші товари:</b>\n${itemsText}\n\n${deliveryInfo}\n\n💳 <b>Оплата:</b> ${order.paymentMethod === 'cash' ? '💰 Готівка' : '🏦 Оплата за рахунком ФОП'}\n💰 <b>Сума:</b> ${totalText}\n\nДякуємо за замовлення! 🎉`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [[
@@ -1858,6 +1850,31 @@ app.put("/api/orders/:orderId/confirm", async (req, res) => {
         })
       });
       console.log('✅ Confirmation message sent to client:', order.telegramId.toString());
+
+      // Відправляємо фото товарів якщо є
+      if (order.items && Array.isArray(order.items) && order.items.length > 0) {
+        for (const item of order.items) {
+          try {
+            const product = await prisma.product.findUnique({ where: { id: item.product_id } });
+            if (product && product.imageUrl &&
+                !product.imageUrl.includes('placeholder.com') &&
+                product.imageUrl.startsWith('http')) {
+              await fetch(`https://api.telegram.org/bot${config.botToken}/sendPhoto`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  chat_id: order.telegramId.toString(),
+                  photo: product.imageUrl,
+                  caption: `${product.emoji || '📦'} <b>${product.name}</b> x${item.quantity} — ${(item.price * item.quantity).toFixed(2)} грн`,
+                  parse_mode: 'HTML'
+                })
+              });
+            }
+          } catch (photoErr) {
+            console.error('⚠️ Failed to send product photo:', photoErr.message);
+          }
+        }
+      }
     } catch (clientNotificationError) {
       console.error('⚠️ Failed to send client confirmation:', clientNotificationError);
     }
