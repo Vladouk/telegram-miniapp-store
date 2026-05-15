@@ -1,4 +1,18 @@
 // =============================================
+// Global Error Handler - prevents Telegram WebApp from closing on JS errors
+// =============================================
+window.addEventListener('error', function(e) {
+    console.error('Global JS error:', e.message, e.filename, e.lineno);
+    // Prevent Telegram from closing the WebApp
+    e.preventDefault();
+    return true;
+});
+window.addEventListener('unhandledrejection', function(e) {
+    console.error('Unhandled promise rejection:', e.reason);
+    e.preventDefault();
+});
+
+// =============================================
 // API Helper Functions
 // =============================================
 
@@ -393,12 +407,13 @@ let adminProductsPage = 0;
 const ADMIN_PRODUCTS_PER_PAGE = 20;
 
 window.renderAdminProductsList = function (page) {
+    try {
     if (page !== undefined) adminProductsPage = page;
 
     const searchInput = document.getElementById('adminProductSearch');
     const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
 
-    let filtered = products.products;
+    let filtered = Array.isArray(products.products) ? products.products : [];
     if (query) {
         filtered = filtered.filter(p =>
             p.name.toLowerCase().includes(query) ||
@@ -498,11 +513,18 @@ window.renderAdminProductsList = function (page) {
             paginationEl.innerHTML = `<span style="font-size:13px;color:var(--text-light);align-self:center;">Сторінка:</span>${btns}<span style="font-size:12px;color:var(--text-light);align-self:center;">(${filtered.length} товарів)</span>`;
         }
     }
+    } catch(e) {
+        console.error('renderAdminProductsList error:', e);
+        const productsList = document.getElementById('adminProductsList');
+        if (productsList) productsList.innerHTML = '<p style="color:red;padding:20px;">Помилка завантаження: ' + e.message + '</p>';
+    }
 };
 
 // Функція для адмін панелі
 window.showAdminTab = function (tab) {
+    try {
     const adminContent = document.getElementById('adminContent');
+    if (!adminContent) { console.error('adminContent not found'); return; }
 
     if (tab === 'stats') {
         adminContent.innerHTML = `
@@ -834,6 +856,10 @@ window.showAdminTab = function (tab) {
 
         // Завантаження промокодів
         loadAdminPromos();
+    }
+    } catch(e) {
+        console.error('showAdminTab error:', e);
+        showToast('❌ Помилка: ' + e.message);
     }
 }
 
@@ -1288,6 +1314,33 @@ async function loadAdminOrders() {
         console.error('Error loading orders:', error);
         document.getElementById('adminOrdersList').innerHTML = `<p>❌ Помилка завантаження: ${error.message}</p>`;
     }
+}
+
+// Завантаження клієнтів для селекту повідомлень
+async function loadClientsForMessages() {
+    try {
+        const adminId = getCurrentTelegramId();
+        const response = await axios.get(CONFIG.API_URL + '/users/all', {
+            headers: { adminId: adminId }
+        });
+        const clients = response.data || [];
+        const sel = document.getElementById('messageClientSelect');
+        if (!sel) return;
+        sel.innerHTML = '<option value="">-- Вибери клієнта --</option>';
+        clients.forEach(u => {
+            const opt = document.createElement('option');
+            opt.value = u.telegramId;
+            opt.textContent = (u.username ? '@' + u.username : (u.firstName || 'Клієнт')) + ' (ID: ' + u.telegramId + ')';
+            sel.appendChild(opt);
+        });
+    } catch (e) {
+        console.error('loadClientsForMessages error:', e);
+    }
+}
+
+window.selectClient = function(telegramId) {
+    const input = document.getElementById('messageClientId');
+    if (input && telegramId) input.value = telegramId;
 }
 
 async function loadAdminPromos() {
