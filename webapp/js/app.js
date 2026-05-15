@@ -553,15 +553,12 @@ window.showAdminTab = function (tab) {
                         <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📦 Категорія:</label>
                         <select id="adminProductCategory" onchange="toggleBrandField()" required style="font-size: 16px; padding: 14px;">
                             <option value="">-- Вибери категорію --</option>
-                            <option value="одноразки">⚡ Одноразки</option>
-                            <option value="рідина">💨 Рідина для вейпу</option>
                         </select>
                     </div>
-                    <div class="form-group" id="brandFieldGroup" style="display: none;">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">🏷️ Бренд рідини:</label>
-                        <select id="adminProductBrand" style="font-size: 16px; padding: 14px;">
-                            <option value="">-- Вибери бренд --</option>
-                            <option value="ELFLIQ">✨ ELFLIQ</option>
+                    <div class="form-group" id="subcategoryGroup" style="display: none;">
+                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📂 Підкатегорія:</label>
+                        <select id="adminProductSubcategory" style="font-size: 16px; padding: 14px;">
+                            <option value="">-- Вибери підкатегорію --</option>
                         </select>
                     </div>
                     <div class="form-group">
