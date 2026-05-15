@@ -1654,8 +1654,30 @@ app.post("/api/orders/payment-screenshot", upload.single('photo'), async (req, r
     const orderInfo = order_number ? `\n📦 Замовлення: #${order_number}` : '';
     const caption = `💳 <b>Скріншот оплати від клієнта</b>\n👤 ${clientInfo}${orderInfo}\n\n✅ Перевірте оплату і підтвердіть замовлення.`;
 
-    // Відправляємо фото всім адмінам через Telegram
+    // Зберігаємо скріншот в БД
     const fileBuffer = fs.readFileSync(file.path);
+    const filename = `screenshot-${Date.now()}-${file.originalname || 'payment.jpg'}`;
+
+    await prisma.image.upsert({
+      where: { filename },
+      update: { data: fileBuffer, mimeType: file.mimetype },
+      create: { filename, mimeType: file.mimetype, data: fileBuffer }
+    });
+
+    // Видаляємо тимчасовий файл
+    try { fs.unlinkSync(file.path); } catch(e) {}
+
+    // Прив'язуємо скріншот до замовлення якщо є order_number
+    if (order_number) {
+      try {
+        await prisma.order.updateMany({
+          where: { orderNumber: order_number },
+          data: { screenshotFilename: filename }
+        });
+      } catch(e) { console.error('Failed to link screenshot to order:', e); }
+    }
+
+    const screenshotUrl = `${config.backendUrl}/api/images/${filename}`;
     const adminIds = config.adminIds;
     for (const adminId of adminIds) {
       const photoFormData = new FormData();
@@ -1669,9 +1691,6 @@ app.post("/api/orders/payment-screenshot", upload.single('photo'), async (req, r
         body: photoFormData
       }).catch(e => console.error('Failed to send screenshot to admin', adminId, e));
     }
-
-    // Видаляємо тимчасовий файл
-    try { fs.unlinkSync(file.path); } catch(e) {}
 
     // Підтверджуємо клієнту
     await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
@@ -1760,6 +1779,8 @@ app.get("/api/orders/admin/all", async (req, res) => {
       ...o,
       telegramId: o.telegramId.toString(),
       isPaid: o.isPaid || false,
+      screenshotFilename: o.screenshotFilename || null,
+      screenshotUrl: o.screenshotFilename ? `${config.backendUrl}/api/images/${o.screenshotFilename}` : null,
       user: o.user ? {
         firstName: o.user.firstName,
         lastName: o.user.lastName,

@@ -1380,6 +1380,11 @@ async function loadAdminOrders() {
                     </div>
                     ${deliveryInfo}
                     ${order.customerNotes ? `<div style="font-size:12px;margin-top:4px;color:var(--text-light);">📝 ${order.customerNotes}</div>` : ''}
+                    ${order.screenshotUrl ? `
+                    <div style="margin-top:10px;">
+                        <div style="font-size:12px;font-weight:600;margin-bottom:6px;color:#2980b9;">💳 Скріншот оплати:</div>
+                        <img src="${order.screenshotUrl}" style="width:100%;max-height:200px;object-fit:contain;border-radius:10px;border:1px solid var(--border);cursor:pointer;" onclick="window.open('${order.screenshotUrl}','_blank')" onerror="this.parentElement.style.display='none'">
+                    </div>` : ''}
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
                         ${!isConfirmed && orderId ? `<button onclick="confirmAdminOrder(${orderId})" style="padding:8px 14px;background:#27ae60;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">✅ Підтвердити</button>` : ''}
                         ${!isPaid && orderId ? `<button onclick="markOrderPaid(${orderId})" style="padding:8px 14px;background:#2980b9;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">💳 Оплачено</button>` : ''}
@@ -2195,7 +2200,7 @@ window.getPaymentMethodName = function (method) {
         'cash': '💰 Готівка',
         'card': '🏦 Оплата за рахунком ФОП'
     };
-    return methods[method] || method;
+    return methods[method] || '🏦 Оплата за рахунком ФОП';
 }
 
 // Підтвердження замовлення адміном

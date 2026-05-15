@@ -185,16 +185,12 @@
                             <label>💳 Спосіб оплати:</label>
                             <div class="payment-methods">
                                 <label class="payment-option">
-                                    <input type="radio" id="payment_cash" name="payment" value="cash" checked>
-                                    <span>💰 Готівка</span>
-                                </label>
-                                <label class="payment-option">
-                                    <input type="radio" id="payment_card" name="payment" value="card">
+                                    <input type="radio" id="payment_card" name="payment" value="card" checked>
                                     <span>🏦 Оплата за рахунком ФОП</span>
                                 </label>
                             </div>
-                            <!-- Реквізити ФОП (показуються при виборі оплати за рахунком) -->
-                            <div id="fopPaymentInfo" style="display:none; margin-top:14px; background:#f0f8ff; border:1px solid #b3d4f5; border-radius:12px; padding:14px; font-size:14px; line-height:1.7;">
+                            <!-- Реквізити ФОП (завжди показуються) -->
+                            <div id="fopPaymentInfo" style="display:block; margin-top:14px; background:#f0f8ff; border:1px solid #b3d4f5; border-radius:12px; padding:14px; font-size:14px; line-height:1.7;">
                                 <div style="font-weight:700; margin-bottom:8px;">📋 Дані для оплати:</div>
                                 <div onclick="copyToClipboard('ФОП Ханчич Руслан Васильович')" style="cursor:pointer; padding:6px 10px; background:#fff; border-radius:8px; margin-bottom:6px; border:1px solid #dde;">
                                     ✅ <b>Отримувач:</b> ФОП Ханчич Руслан Васильович <span style="color:#888; font-size:12px;">📋</span>
@@ -437,7 +433,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260515-1"></script>
-    <script src="js/app.js?v=20260515-15"></script>
+    <script src="js/app.js?v=20260515-16"></script>
 </body>
 
 </html>

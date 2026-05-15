@@ -71,6 +71,7 @@ model Order {
   customerNotes String?
   adminNotes    String?
   items         Json
+  screenshotFilename String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
