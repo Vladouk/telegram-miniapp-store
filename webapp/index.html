@@ -190,16 +190,25 @@
                                 </label>
                                 <label class="payment-option">
                                     <input type="radio" id="payment_card" name="payment" value="card">
-                                    <span>💳 Укр. Карта</span>
-                                </label>
-                                <label class="payment-option">
-                                    <input type="radio" id="payment_usdt" name="payment" value="usdt">
-                                    <span>₿ USDT</span>
+                                    <span>🏦 Оплата за рахунком ФОП</span>
                                 </label>
                             </div>
-                            <div id="currencyExchange"
-                                style="display: none; margin-top: 12px; padding: 10px 12px; background: #f0f8ff; border-radius: 8px; font-size: 14px; color: #0066cc;">
-                                💱 <span id="exchangeText"></span>
+                            <!-- Реквізити ФОП (показуються при виборі оплати за рахунком) -->
+                            <div id="fopPaymentInfo" style="display:none; margin-top:14px; background:#f0f8ff; border:1px solid #b3d4f5; border-radius:12px; padding:14px; font-size:14px; line-height:1.7;">
+                                <div style="font-weight:700; margin-bottom:8px;">📋 Дані для оплати:</div>
+                                <div onclick="copyToClipboard('ФОП Ханчич Руслан Васильович')" style="cursor:pointer; padding:6px 10px; background:#fff; border-radius:8px; margin-bottom:6px; border:1px solid #dde;">
+                                    ✅ <b>Отримувач:</b> ФОП Ханчич Руслан Васильович <span style="color:#888; font-size:12px;">📋</span>
+                                </div>
+                                <div onclick="copyToClipboard('2976802871')" style="cursor:pointer; padding:6px 10px; background:#fff; border-radius:8px; margin-bottom:6px; border:1px solid #dde;">
+                                    ✅ <b>Код ЄДРПОУ / ІПН:</b> 2976802871 <span style="color:#888; font-size:12px;">📋</span>
+                                </div>
+                                <div onclick="copyToClipboard('UA623220010000026000350055874')" style="cursor:pointer; padding:6px 10px; background:#fff; border-radius:8px; margin-bottom:6px; border:1px solid #dde;">
+                                    ✅ <b>IBAN:</b> UA623220010000026000350055874 <span style="color:#888; font-size:12px;">📋</span>
+                                </div>
+                                <div onclick="copyToClipboard('Оплата за товар')" style="cursor:pointer; padding:6px 10px; background:#fff8e1; border-radius:8px; margin-bottom:6px; border:1px solid #ffe082;">
+                                    ❕ <b>Призначення платежу:</b> Оплата за товар <span style="color:#888; font-size:12px;">📋</span>
+                                </div>
+                                <div style="font-size:12px; color:#666; margin-top:6px;">👆 Натисни на будь-який рядок щоб скопіювати</div>
                             </div>
                         </div>
 
@@ -224,8 +233,31 @@
                     <div class="confirmation-details" id="confirmationDetails">
                         <!-- Деталі будуть вставлені -->
                     </div>
-                    <button onclick="navigateTo('home')" class="btn btn-primary btn-full">Повернутися на
-                        головну</button>
+                    <!-- Блок завантаження скріншоту оплати -->
+                    <div id="paymentScreenshotBlock" style="display:none; margin:16px 0; background:#f0f8ff; border:1px solid #b3d4f5; border-radius:14px; padding:16px;">
+                        <div style="font-weight:700; margin-bottom:10px;">📸 Надішліть скріншот оплати</div>
+                        <p style="font-size:13px; color:#555; margin-bottom:12px;">Після оплати за рахунком ФОП — завантажте скріншот підтвердження оплати.</p>
+                        <label style="display:flex; flex-direction:column; gap:8px;">
+                            <div style="display:flex; gap:8px;">
+                                <label style="flex:1; padding:12px; background:var(--secondary); color:#fff; border-radius:999px; text-align:center; cursor:pointer; font-size:14px; font-weight:600;">
+                                    📷 Камера
+                                    <input type="file" id="paymentScreenshotCamera" accept="image/*" capture="environment" style="display:none;" onchange="handlePaymentScreenshot(this)">
+                                </label>
+                                <label style="flex:1; padding:12px; background:var(--light); border:1px solid var(--border); border-radius:999px; text-align:center; cursor:pointer; font-size:14px; font-weight:600;">
+                                    🖼️ Галерея
+                                    <input type="file" id="paymentScreenshotFile" accept="image/*" style="display:none;" onchange="handlePaymentScreenshot(this)">
+                                </label>
+                            </div>
+                        </label>
+                        <div id="screenshotPreview" style="display:none; margin-top:10px; border-radius:10px; overflow:hidden;">
+                            <img id="screenshotPreviewImg" style="width:100%; max-height:200px; object-fit:cover;">
+                        </div>
+                        <button id="sendScreenshotBtn" onclick="sendPaymentScreenshot()" style="display:none; width:100%; margin-top:10px; padding:13px; background:linear-gradient(135deg,var(--primary),var(--primary-strong)); color:#0b1220; border:none; border-radius:999px; font-size:15px; font-weight:700; cursor:pointer;">
+                            ✅ Надіслати скріншот адміну
+                        </button>
+                        <div id="screenshotStatus" style="margin-top:8px; font-size:13px; text-align:center;"></div>
+                    </div>
+                    <button onclick="navigateTo('home')" class="btn btn-primary btn-full">Повернутися на головну</button>
                 </div>
             </section>
 
@@ -405,7 +437,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260515-1"></script>
-    <script src="js/app.js?v=20260515-12"></script>
+    <script src="js/app.js?v=20260515-13"></script>
 </body>
 
 </html>

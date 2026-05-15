@@ -114,7 +114,7 @@ class ProductManager {
                     ${isOutOfStock ? '<div style="color: #e74c3c; font-weight: 600;">❌ Немає в наявності</div>' : ''}
                     ${!isOutOfStock && product.stockQuantity < 10 ? `<div style="color: #f39c12; font-size: 12px;">Залишилось ${product.stockQuantity} шт.</div>` : ''}
                     <div class="product-price-row">
-                        <div class="product-price">${product.price} zł</div>
+                        <div class="product-price">${product.price} грн</div>
                         ${!isOutOfStock ? `<button class="add-to-cart-btn" onclick="window.quickAddToCart(event, ${product.id})">+</button>` : ''}
                     </div>
                 </div>
@@ -165,7 +165,7 @@ window.showProductDetail = async function (productId) {
             ${!isOutOfStock && product.stockQuantity >= 10 ? '<span style="color: #27ae60;">✅ В наявності</span>' : ''}
         </div>
         <p class="product-detail-description">${product.description}</p>
-        <div class="product-detail-price">${product.price} zł</div>
+        <div class="product-detail-price">${product.price} грн</div>
         ${!isOutOfStock ? `
             <div class="quantity-selector">
                 <button class="quantity-btn" onclick="decreaseQuantity()">−</button>
@@ -209,7 +209,7 @@ window.showProductDetail = async function (productId) {
                     ${!isOutOfStock && product.stockQuantity >= 10 ? '<span style="color: #27ae60;">✅ В наявності</span>' : ''}
                 </div>
                 <p class="product-detail-description">${product.description}</p>
-                <div class="product-detail-price">${product.price} zł</div>
+                <div class="product-detail-price">${product.price} грн</div>
                 ${!isOutOfStock ? `
                     <div class="quantity-selector">
                         <button class="quantity-btn" onclick="decreaseQuantity()">−</button>

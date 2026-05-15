@@ -459,7 +459,7 @@ window.renderAdminProductsList = function (page) {
             const meta = document.createElement('div');
             meta.style.cssText = 'font-size:12px;color:var(--text-light);';
             const stockColor = p.stockQuantity > 0 ? 'green' : 'red';
-            meta.innerHTML = `${p.price} zł | ${p.category}${p.brand ? ' | ' + p.brand : ''}<br>📦 На складі: <strong style="color:${stockColor};">${p.stockQuantity} шт.</strong>`;
+            meta.innerHTML = `${p.price} грн | ${p.category}${p.brand ? ' | ' + p.brand : ''}<br>📦 На складі: <strong style="color:${stockColor};">${p.stockQuantity} шт.</strong>`;
             left.appendChild(meta);
 
             // Права частина
@@ -789,7 +789,7 @@ window.showAdminTab = function (tab) {
                         <label>Тип знижки:</label>
                         <select id="adminPromoType" required>
                             <option value="percent">Відсотки (%)</option>
-                            <option value="fixed">Фіксована сума (zł)</option>
+                            <option value="fixed">Фіксована сума (грн)</option>
                         </select>
                     </div>
                     <div class="form-group">
@@ -821,7 +821,7 @@ function updateStatValue(id, value) {
 }
 
 function formatMoney(value) {
-    return `${value.toFixed(2)} zł`;
+    return `${value.toFixed(2)} грн`;
 }
 
 function renderAdminProductsStats() {
@@ -1359,7 +1359,7 @@ async function loadAdminOrders() {
                         <div style="font-size: 12px; color: var(--text-light);">
                             📦 Товари: ${itemsText || 'Товари не вказані'}${deliveryFeeDisplay}<br>
                             💳 Оплата: ${getPaymentMethodName(order.paymentMethod)}<br>
-                            💰 Сума: <strong>${(order.totalPrice || 0).toFixed(2)} zł</strong><br>
+                            💰 Сума: <strong>${(order.totalPrice || 0).toFixed(2)} грн</strong><br>
                             📅 ${new Date(order.createdAt).toLocaleString('uk-UA')}<br>
                             ${order.deliveryAddress ? `🚚 Адреса: ${order.deliveryAddress}` : ''}
                             ${order.pickupLocation ? `📍 Самовивіз: ${order.pickupLocation}` : ''}
@@ -1426,7 +1426,7 @@ async function loadAdminPromos() {
                 <div>
                     <strong>${promo.code}</strong>
                     <div style="font-size: 12px; color: var(--text-light);">
-                        ${promo.discount_type === 'percent' ? promo.discount_value + '%' : promo.discount_value + ' zł'}
+                        ${promo.discount_type === 'percent' ? promo.discount_value + '%' : promo.discount_value + ' грн'}
                         | Використано: ${promo.used_count}/${promo.max_uses || '∞'}
                         | ${promo.is_active ? '✅ Активно' : '❌ Неактивно'}
                     </div>
@@ -1622,7 +1622,7 @@ window.showClientDetails = async function (telegramId) {
                 <div style="margin-bottom: 16px; padding: 12px; background: var(--light); border-radius: 8px;">
                     <strong>Загальна статистика:</strong><br>
                     📦 Всього замовлень: ${orders.length}<br>
-                    💰 Загальна сума: ${orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0).toFixed(2)} zł
+                    💰 Загальна сума: ${orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0).toFixed(2)} грн
                 </div>
                 <h4 style="margin-bottom: 12px;">Історія замовлень:</h4>
                 ${orders.map(order => `
@@ -1634,7 +1634,7 @@ window.showClientDetails = async function (telegramId) {
                             </span>
                         </div>
                         <div style="font-size: 12px; color: var(--text-light);">
-                            💰 ${(order.totalPrice || 0).toFixed(2)} zł<br>
+                            💰 ${(order.totalPrice || 0).toFixed(2)} грн<br>
                             💳 ${getPaymentMethodName(order.paymentMethod)}<br>
                             📅 ${new Date(order.createdAt).toLocaleString('uk-UA')}<br>
                             ${order.deliveryAddress ? `🚚 ${order.deliveryAddress}<br>` : ''}
@@ -1956,7 +1956,7 @@ function buildDeliveryEstimateText(estimate) {
     if (!Number.isFinite(fee)) {
         return null;
     }
-    return `🚚 Орієнтовна доставка: ${fee.toFixed(2)} zł. Але потрібно уточнити у адміна.`;
+    return `🚚 Орієнтовна доставка: ${fee.toFixed(2)} грн. Але потрібно уточнити у адміна.`;
 }
 
 async function requestDeliveryEstimate(address) {
@@ -2182,8 +2182,7 @@ window.confirmOrder = async function () {
 window.getPaymentMethodName = function (method) {
     const methods = {
         'cash': '💰 Готівка',
-        'card': '💳 Укр. Карта',
-        'usdt': '₿ USDT'
+        'card': '🏦 Оплата за рахунком ФОП'
     };
     return methods[method] || method;
 }
@@ -2273,11 +2272,7 @@ function showOrderConfirmation(order, orderData) {
         ? `🚚 Доставка на адресу: ${orderData?.delivery_address}`
         : `📍 Самовивіз з: ${orderData?.pickup_location}`;
 
-    const isCardPayment = (order.paymentMethod || order.payment_method) === 'card';
-    const totalUah = Math.round(order.totalPrice * currentExchangeRate * 100) / 100;
-    const priceDisplay = isCardPayment
-        ? `${order.totalPrice.toFixed(2)} zł (${totalUah.toFixed(2)} грн)`
-        : `${order.totalPrice.toFixed(2)} zł`;
+    const priceDisplay = `${order.totalPrice.toFixed(2)} грн`;
 
     confirmationDetails.innerHTML = `
         <div class="confirmation-detail-item">
@@ -2306,6 +2301,17 @@ function showOrderConfirmation(order, orderData) {
         </div>
     `;
 
+    // Показуємо блок скріншоту якщо оплата за рахунком ФОП
+    const screenshotBlock = document.getElementById('paymentScreenshotBlock');
+    if (screenshotBlock) {
+        const isCardPayment = (order.paymentMethod || order.payment_method) === 'card';
+        screenshotBlock.style.display = isCardPayment ? 'block' : 'none';
+    }
+
+    // Зберігаємо номер замовлення для відправки скріншоту
+    window._lastOrderNumber = order.orderNumber;
+    window._lastOrderTelegramId = order.telegramId;
+
     // Зберігання замовлення в історії
     const history = JSON.parse(localStorage.getItem('vaper_orders') || '[]');
     history.unshift(order);
@@ -2314,8 +2320,82 @@ function showOrderConfirmation(order, orderData) {
     navigateTo('confirmation');
 }
 
+// Копіювання в буфер обміну
+window.copyToClipboard = function (text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => showToast('✅ Скопійовано: ' + text));
+    } else {
+        const el = document.createElement('textarea');
+        el.value = text;
+        document.body.appendChild(el);
+        el.select();
+        document.execCommand('copy');
+        document.body.removeChild(el);
+        showToast('✅ Скопійовано: ' + text);
+    }
+}
+
+// Обробка вибору скріншоту оплати
+window.handlePaymentScreenshot = function (input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = function (e) {
+        const preview = document.getElementById('screenshotPreview');
+        const previewImg = document.getElementById('screenshotPreviewImg');
+        const sendBtn = document.getElementById('sendScreenshotBtn');
+        if (preview && previewImg) {
+            previewImg.src = e.target.result;
+            preview.style.display = 'block';
+        }
+        if (sendBtn) sendBtn.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+}
+
+// Відправка скріншоту оплати через бот
+window.sendPaymentScreenshot = async function () {
+    const camInput = document.getElementById('paymentScreenshotCamera');
+    const fileInput = document.getElementById('paymentScreenshotFile');
+    const file = (camInput && camInput.files[0]) || (fileInput && fileInput.files[0]);
+    const statusEl = document.getElementById('screenshotStatus');
+    const sendBtn = document.getElementById('sendScreenshotBtn');
+
+    if (!file) { showToast('Спочатку виберіть фото'); return; }
+
+    const orderNumber = window._lastOrderNumber || '';
+    const telegramId = window._lastOrderTelegramId || getCurrentTelegramId();
+
+    if (!telegramId) { showToast('❌ Не вдалося визначити Telegram ID'); return; }
+
+    if (statusEl) statusEl.textContent = '⏳ Відправляємо...';
+    if (sendBtn) sendBtn.disabled = true;
+
+    try {
+        const formData = new FormData();
+        formData.append('photo', file);
+        formData.append('telegram_id', String(telegramId));
+        formData.append('order_number', orderNumber);
+
+        const response = await fetch(CONFIG.API_URL + '/orders/payment-screenshot', {
+            method: 'POST',
+            body: formData
+        });
+
+        if (response.ok) {
+            if (statusEl) statusEl.innerHTML = '<span style="color:green;">✅ Скріншот надіслано адміну!</span>';
+            if (sendBtn) sendBtn.style.display = 'none';
+            showToast('✅ Скріншот оплати надіслано!');
+        } else {
+            throw new Error('Помилка сервера');
+        }
+    } catch (e) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:red;">❌ Помилка відправки. Надішліть скріншот напряму в чат бота.</span>';
+        if (sendBtn) sendBtn.disabled = false;
+    }
+}
+
 window.contactOwner = function () {
-    // Відкриває переписку з менеджером у Telegram
     window.open('https://t.me/+380680162091', '_blank');
 }
 
@@ -2418,7 +2498,7 @@ window.loadOrderHistory = async function () {
                 </div>
                 <div style="color: var(--text-light); font-size: 14px;">
                     <div>Дата: ${new Date(order.createdAt).toLocaleString('uk-UA')}</div>
-                        <div>Сума: <strong>${order.totalPrice.toFixed(2)} zł${(order.paymentMethod || order.payment_method) === 'card' ? ` (${(Math.round(order.totalPrice * currentExchangeRate * 100) / 100).toFixed(2)} грн)` : ''}</strong></div>
+                        <div>Сума: <strong>${order.totalPrice.toFixed(2)} грн${(order.paymentMethod || order.payment_method) === 'card' ? ` (${(Math.round(order.totalPrice * currentExchangeRate * 100) / 100).toFixed(2)} грн)` : ''}</strong></div>
                         <div>Оплата: ${getPaymentMethodName(order.paymentMethod)}</div>
                 </div>
             </div>
@@ -2451,8 +2531,8 @@ window.displayCheckoutItems = function () {
     const paymentMethod = document.querySelector('input[name="payment"]:checked')?.value;
     const totalUah = Math.round(total * currentExchangeRate * 100) / 100;
     const totalText = paymentMethod === 'card'
-        ? `${total.toFixed(2)} zł (${totalUah.toFixed(2)} грн)`
-        : `${total.toFixed(2)} zł`;
+        ? `${total.toFixed(2)} грн (${totalUah.toFixed(2)} грн)`
+        : `${total.toFixed(2)} грн`;
 
     checkoutItemsContainer.innerHTML = `
         <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 16px;">
@@ -2463,7 +2543,7 @@ window.displayCheckoutItems = function () {
                         <strong>${item.emoji ? item.emoji + ' ' : ''}${item.name}</strong>
                         <div style="font-size: 12px; color: var(--text-light);">x${item.quantity}</div>
                     </div>
-                    <strong>${(item.price * item.quantity).toFixed(2)} zł</strong>
+                    <strong>${(item.price * item.quantity).toFixed(2)} грн</strong>
                 </div>
             `).join('')}
             <div style="display: flex; justify-content: space-between; padding-top: 12px; border-top: 2px solid var(--border); font-size: 18px; font-weight: bold;">
@@ -2474,67 +2554,25 @@ window.displayCheckoutItems = function () {
     `;
 }
 
-// Глобальна змінна для курсу обміну
-let currentExchangeRate = 11.6; // Default value
-window.currentExchangeRate = currentExchangeRate;
+// Курс обміну не використовується
+let currentExchangeRate = 1;
+window.currentExchangeRate = 1;
 
-// Функція для завантаження актуального курсу
-async function loadExchangeRate() {
-    try {
-        const response = await axios.get('/api/exchange-rate');
-        if (response.data && Number.isFinite(response.data.rate)) {
-            currentExchangeRate = response.data.rate;
-            window.currentExchangeRate = currentExchangeRate;
-            console.log(`💱 Exchange rate loaded: 1 PLN = ${response.data.rate} UAH ${response.data.cached ? '(cached)' : '(fresh)'}`);
-            if (window.cart?.updateCartSummary) {
-                window.cart.updateCartSummary();
-            }
-            if (typeof window.displayCheckoutItems === 'function') {
-                window.displayCheckoutItems();
-            }
-        }
-    } catch (error) {
-        console.warn('Failed to load exchange rate, using default:', error);
-        currentExchangeRate = 11.6;
-        window.currentExchangeRate = currentExchangeRate;
-    }
-}
+async function loadExchangeRate() {}
 
-// Функція для обробки вибору методу оплати та відображення конвертації
-window.setupPaymentMethodListeners = async function () {
-    // Завантажуємо курс перед встановленням listeners
-    await loadExchangeRate();
-
+window.setupPaymentMethodListeners = function () {
+    // Показуємо реквізити ФОП при виборі оплати за рахунком
     const paymentRadios = document.querySelectorAll('input[name="payment"]');
-    const currencyExchangeDiv = document.getElementById('currencyExchange');
-    const exchangeText = document.getElementById('exchangeText');
-
-    if (!paymentRadios.length || !currencyExchangeDiv) return;
-
+    const fopInfo = document.getElementById('fopPaymentInfo');
     paymentRadios.forEach(radio => {
         radio.addEventListener('change', () => {
-            if (radio.value === 'card') {
-                const subtotal = cart.getTotal();
-                const totalUah = Math.round(subtotal * currentExchangeRate * 100) / 100;
-                exchangeText.textContent = `${subtotal.toFixed(2)} zł = ${totalUah.toFixed(2)} грн`;
-                currencyExchangeDiv.style.display = 'block';
-            } else {
-                currencyExchangeDiv.style.display = 'none';
-            }
-
-            if (window.cart?.updateCartSummary) {
-                window.cart.updateCartSummary();
-            }
-            if (typeof window.displayCheckoutItems === 'function') {
-                window.displayCheckoutItems();
-            }
+            if (fopInfo) fopInfo.style.display = radio.value === 'card' ? 'block' : 'none';
+            if (window.cart && window.cart.updateCartSummary) window.cart.updateCartSummary();
+            if (typeof window.displayCheckoutItems === 'function') window.displayCheckoutItems();
         });
     });
-
     const checked = document.querySelector('input[name="payment"]:checked');
-    if (checked) {
-        checked.dispatchEvent(new Event('change'));
-    }
+    if (checked) checked.dispatchEvent(new Event('change'));
 }
 
 // Відправка повідомлення клієнту з WebApp
@@ -2676,7 +2714,7 @@ window.setDeliveryFee = async function (orderId) {
         return;
     }
 
-    const feeRaw = prompt('Введи суму доставки (zł):');
+    const feeRaw = prompt('Введи суму доставки (грн):');
     if (feeRaw === null) {
         return;
     }

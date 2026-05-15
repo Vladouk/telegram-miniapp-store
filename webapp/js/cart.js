@@ -117,7 +117,7 @@ class Cart {
                 <div class="cart-item-image">${item.emoji || '📦'}</div>
                 <div class="cart-item-info">
                     <div class="cart-item-name">${item.name}</div>
-                    <div class="cart-item-price">${item.price} zł</div>
+                    <div class="cart-item-price">${item.price}грн</div>
                     <div class="cart-item-quantity">
                         <button class="cart-item-qty-btn" onclick="cart.updateQuantity(${item.id}, ${item.quantity - 1})">−</button>
                         <span>${item.quantity}</span>
@@ -140,21 +140,21 @@ class Cart {
             : 0;
         const total = Math.max(subtotal - discount + deliveryEstimate, 0);
 
-        document.getElementById('subtotal').textContent = `${subtotal.toFixed(2)} zł`;
-        document.getElementById('total').textContent = `${total.toFixed(2)} zł`;
+        document.getElementById('subtotal').textContent = `${subtotal.toFixed(2)}грн`;
+        document.getElementById('total').textContent = `${total.toFixed(2)}грн`;
 
         const paymentMethod = document.querySelector('input[name="payment"]:checked')?.value;
         if (paymentMethod === 'card') {
             const exchangeRate = window.currentExchangeRate || 11.6;
             const totalUah = Math.round(total * exchangeRate * 100) / 100;
-            document.getElementById('checkoutTotal').textContent = `${total.toFixed(2)} zł (${totalUah.toFixed(2)} грн)`;
+            document.getElementById('checkoutTotal').textContent = `${total.toFixed(2)}грн (${totalUah.toFixed(2)} грн)`;
         } else {
-            document.getElementById('checkoutTotal').textContent = `${total.toFixed(2)} zł`;
+            document.getElementById('checkoutTotal').textContent = `${total.toFixed(2)}грн`;
         }
 
         if (discount > 0) {
             document.getElementById('discountItem').style.display = 'flex';
-            document.getElementById('discount').textContent = `-${discount.toFixed(2)} zł`;
+            document.getElementById('discount').textContent = `-${discount.toFixed(2)}грн`;
         } else {
             document.getElementById('discountItem').style.display = 'none';
         }
@@ -164,7 +164,7 @@ class Cart {
         if (deliveryItem && deliveryAmount) {
             if (deliveryEstimate > 0) {
                 deliveryItem.style.display = 'flex';
-                deliveryAmount.textContent = `${deliveryEstimate.toFixed(2)} zł`;
+                deliveryAmount.textContent = `${deliveryEstimate.toFixed(2)}грн`;
             } else {
                 deliveryItem.style.display = 'none';
             }
@@ -204,7 +204,7 @@ window.applyPromo = async function () {
             localStorage.setItem('vaper_discount', discount);
             localStorage.setItem('vaper_promocode', code);
 
-            showToast(`Промокод застосовано! Знижка: ${discount.toFixed(2)} zł ✨`);
+            showToast(`Промокод застосовано! Знижка: ${discount.toFixed(2)}грн ✨`);
             cart.updateCartSummary();
             promoInput.value = '';
         } else {
