@@ -2498,6 +2498,85 @@ window.aiDescribeProduct = async function () {
     }
 }
 
+// AI генерація опису з фото (Gemini Vision)
+window.aiDescribeFromPhoto = async function () {
+    const btn = document.getElementById('aiBtnPhoto');
+    const statusEl = document.getElementById('aiPhotoStatus');
+
+    // Беремо фото з камери або галереї
+    const camInput = document.getElementById('adminProductImageCamera');
+    const galInput = document.getElementById('adminProductImageFile');
+    const file = (camInput && camInput.files[0]) || (galInput && galInput.files[0]);
+
+    if (!file) {
+        showToast('Спочатку завантаж фото товару на кроці 2');
+        return;
+    }
+
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ AI аналізує фото...'; }
+    if (statusEl) { statusEl.style.display = 'block'; statusEl.textContent = '🤖 Gemini аналізує фото...'; }
+
+    try {
+        const name = document.getElementById('adminProductName')?.value.trim() || '';
+        const adminHeaders = getAdminHeaders();
+
+        const formData = new FormData();
+        formData.append('photo', file);
+        if (name) formData.append('name', name);
+
+        const response = await fetch(CONFIG.API_URL + '/ai/describe-from-photo', {
+            method: 'POST',
+            headers: adminHeaders,
+            body: formData
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.error || 'Помилка AI');
+        }
+
+        const data = await response.json();
+
+        // Заповнюємо опис
+        const descEl = document.getElementById('adminProductDesc');
+        if (descEl && data.description) descEl.value = data.description;
+
+        // Якщо назва порожня — заповнюємо
+        const nameEl = document.getElementById('adminProductName');
+        if (nameEl && !nameEl.value && data.name) nameEl.value = data.name;
+
+        // Емодзі
+        const emojiEl = document.getElementById('adminProductEmoji');
+        if (emojiEl && data.emoji && !emojiEl.value) emojiEl.value = data.emoji;
+
+        // Ціна
+        const priceEl = document.getElementById('adminProductPrice');
+        if (priceEl && data.suggestedPrice && !priceEl.value) priceEl.value = data.suggestedPrice;
+
+        // Категорія
+        if (data.category) {
+            const catEl = document.getElementById('adminProductCategory');
+            if (catEl) {
+                catEl.value = data.category;
+                toggleBrandField();
+            }
+        }
+
+        let msg = '✅ Опис згенеровано!';
+        if (data.priceMin && data.priceMax) {
+            msg += ` Ціна: ${data.priceMin}–${data.priceMax} грн`;
+        }
+        if (statusEl) statusEl.innerHTML = `<span style="color:green;">${msg}</span>`;
+        showToast('✨ AI заповнив опис з фото!');
+
+    } catch (e) {
+        if (statusEl) statusEl.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
+        showToast('❌ Помилка AI: ' + e.message);
+    } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '✨ Згенерувати опис з фото через AI'; }
+    }
+}
+
 window.markOrderPaid = async function (orderId) {
     if (!confirm('Позначити замовлення як оплачене?')) return;
     try {

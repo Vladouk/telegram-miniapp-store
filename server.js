@@ -32,6 +32,7 @@ const config = {
   port: parseInt(process.env.PORT || "8000", 10),
   databaseUrl: process.env.DATABASE_URL,
   openaiApiKey: process.env.OPENAI_API_KEY || null,
+  geminiApiKey: process.env.GEMINI_API_KEY || null,
 };
 
 const prisma = new PrismaClient();
@@ -2433,6 +2434,118 @@ app.get("/api/images/:filename", async (req, res) => {
     res.set('Cache-Control', 'public, max-age=31536000');
     res.send(image.data);
   } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI: генерація опису з фото через Gemini Vision
+app.post("/api/ai/describe-from-photo", upload.single('photo'), async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+
+    const apiKey = config.geminiApiKey || config.openaiApiKey;
+    if (!apiKey) {
+      return res.status(503).json({ error: "AI API key not configured. Add GEMINI_API_KEY to Railway Variables." });
+    }
+
+    const file = req.file;
+    if (!file) {
+      return res.status(400).json({ error: "No photo uploaded" });
+    }
+
+    const { name } = req.body;
+    const imageBuffer = fs.readFileSync(file.path);
+    const base64Image = imageBuffer.toString('base64');
+    const mimeType = file.mimetype || 'image/jpeg';
+
+    // Видаляємо тимчасовий файл
+    try { fs.unlinkSync(file.path); } catch(e) {}
+
+    const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
+Подивись на фото товару${name ? ` (назва: "${name}")` : ''}.
+
+Дай відповідь у форматі JSON:
+{
+  "name": "точна назва товару якщо видно на фото, або уточнена назва",
+  "description": "короткий опис товару українською (2-3 речення: що це, для чого, переваги)",
+  "priceMin": число (мінімальна ціна в грн на польському ринку),
+  "priceMax": число (максимальна ціна в грн на польському ринку),
+  "emoji": "одне підходяще емодзі",
+  "category": "одна з категорій: home/kitchen/gadgets/auto/energy/tools/pets/relax/holidays/beauty/work"
+}
+
+Тільки JSON, без пояснень.`;
+
+    let result;
+
+    // Gemini Vision API
+    if (config.geminiApiKey) {
+      const geminiResponse = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${config.geminiApiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { text: prompt },
+                { inline_data: { mime_type: mimeType, data: base64Image } }
+              ]
+            }],
+            generationConfig: { maxOutputTokens: 400, temperature: 0.7 }
+          })
+        }
+      );
+
+      if (!geminiResponse.ok) {
+        const err = await geminiResponse.json();
+        throw new Error(err.error?.message || `Gemini error ${geminiResponse.status}`);
+      }
+
+      const geminiData = await geminiResponse.json();
+      const content = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
+      const jsonMatch = content?.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("Invalid Gemini response");
+      result = JSON.parse(jsonMatch[0]);
+    }
+    // Fallback: OpenAI Vision
+    else if (config.openaiApiKey) {
+      const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.openaiApiKey}` },
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [{
+            role: "user",
+            content: [
+              { type: "text", text: prompt },
+              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } }
+            ]
+          }],
+          max_tokens: 400
+        })
+      });
+      const openaiData = await openaiResponse.json();
+      const content = openaiData.choices?.[0]?.message?.content?.trim();
+      const jsonMatch = content?.match(/\{[\s\S]*\}/);
+      if (!jsonMatch) throw new Error("Invalid OpenAI response");
+      result = JSON.parse(jsonMatch[0]);
+    }
+
+    res.json({
+      name: result.name || name || '',
+      description: result.description || '',
+      priceMin: result.priceMin || null,
+      priceMax: result.priceMax || null,
+      suggestedPrice: result.priceMin ? Math.round((result.priceMin + (result.priceMax || result.priceMin)) / 2) : null,
+      emoji: result.emoji || '📦',
+      category: result.category || ''
+    });
+  } catch (error) {
+    console.error('AI photo describe error:', error);
     res.status(500).json({ error: error.message });
   }
 });

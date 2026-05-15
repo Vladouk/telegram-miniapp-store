@@ -420,6 +420,10 @@
                     <div class="add-product-sheet__step-label">Крок 3 з 3 — Опис</div>
                     <div class="add-product-sheet__field">
                         <label>Опис товару</label>
+                        <button type="button" onclick="aiDescribeFromPhoto()" id="aiBtnPhoto" style="width:100%;padding:11px;background:linear-gradient(135deg,#7c3aed,#a855f7);color:#fff;border:none;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;margin-bottom:10px;">
+                            ✨ Згенерувати опис з фото через AI
+                        </button>
+                        <div id="aiPhotoStatus" style="font-size:12px;text-align:center;margin-bottom:8px;color:var(--text-light);display:none;"></div>
                         <textarea id="adminProductDesc" placeholder="Детальний опис, характеристики, особливості..."></textarea>
                     </div>
                 </div>
@@ -437,7 +441,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260515-1"></script>
-    <script src="js/app.js?v=20260515-18"></script>
+    <script src="js/app.js?v=20260515-19"></script>
 </body>
 
 </html>
