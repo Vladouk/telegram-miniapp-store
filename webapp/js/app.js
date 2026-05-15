@@ -300,20 +300,9 @@ function populateAdminCategorySelect() {
     }
 }
 
-// Observe adminContent to populate admin selects when admin tabs are rendered
+// Observe adminContent - disabled, populateAdminCategorySelect called manually
 function observeAdminContentForForms() {
-    const adminContent = document.getElementById('adminContent');
-    if (!adminContent || typeof MutationObserver === 'undefined') return;
-    const mo = new MutationObserver((mutations) => {
-        for (const m of mutations) {
-            if (m.addedNodes && m.addedNodes.length) {
-                if (document.getElementById('adminProductCategory')) {
-                    populateAdminCategorySelect();
-                }
-            }
-        }
-    });
-    mo.observe(adminContent, { childList: true, subtree: true });
+    // noop - categories populated manually in showAdminTab
 }
 
 // Start observing adminContent after DOM ready
@@ -375,6 +364,7 @@ window.navigateTo = function (page) {
 
 window.showLoading = function (show = true) {
     const loading = document.getElementById('loading');
+    if (!loading) return;
     if (show) {
         loading.style.display = 'flex';
     } else {
@@ -384,6 +374,7 @@ window.showLoading = function (show = true) {
 
 window.showToast = function (message, duration = 3000) {
     const toast = document.getElementById('toast');
+    if (!toast) return;
     toast.textContent = message;
     toast.classList.add('show');
 
@@ -715,11 +706,12 @@ window.showAdminTab = function (tab) {
         adminContent.innerHTML = '';
         adminContent.appendChild(wrapper);
 
-        // Показ списку товарів з пагінацією та пошуком
-        console.log('📦 HTML inserted, calling renderAdminProductsList, products count:', products.products ? products.products.length : 'undefined');
+        // Заповнюємо категорії вручну
+        try { populateAdminCategorySelect(); } catch(e) {}
+
+        // Показ списку товарів
         adminProductsPage = 0;
         renderAdminProductsList();
-        console.log('📦 showAdminTab products DONE');
 
     } else if (tab === 'orders') {
         adminContent.innerHTML = `
@@ -1031,21 +1023,19 @@ async function loadAdminStats() {
 }
 
 window.toggleBrandField = function () {
-    const category = document.getElementById('adminProductCategory').value;
+    const catEl = document.getElementById('adminProductCategory');
+    if (!catEl) return;
+    const category = catEl.value;
     const subcategoryGroup = document.getElementById('subcategoryGroup');
-    
-    // Для всіх категорій показуємо поле підкатегорії
+    if (!subcategoryGroup) return;
+
     if (category) {
         subcategoryGroup.style.display = 'block';
-        
-        // Заповнюємо список підкатегорій на основі вибраної категорії
         const selectedCat = CONFIG.CATEGORIES.find(c => c.id === category);
         const subcategorySelect = document.getElementById('adminProductSubcategory');
-        
-        if (selectedCat && selectedCat.subcats) {
-            subcategorySelect.innerHTML = `<option value="">-- Вибери підкатегорію --</option>` +
-                selectedCat.subcats.map(sub => `<option value="${sub}">${sub}</option>`).join('');
-            subcategorySelect.required = true;
+        if (subcategorySelect && selectedCat && selectedCat.subcats) {
+            subcategorySelect.innerHTML = '<option value="">-- Вибери підкатегорію --</option>' +
+                selectedCat.subcats.map(sub => '<option value="' + sub + '">' + sub + '</option>').join('');
         }
     } else {
         subcategoryGroup.style.display = 'none';
