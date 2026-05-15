@@ -354,7 +354,7 @@ app.use("/uploads", express.static(uploadsDir));
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "Vaper Mini App API",
+    message: "На Шару — Mini App API",
     docs: "/api/docs",
   });
 });
@@ -518,7 +518,7 @@ app.post("/api/bot/webhook", async (req, res) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: clientId,
-            text: `💬 <b>Повідомлення від VAPER:</b>\n\n${text}`,
+            text: `💬 <b>Повідомлення від магазину «На Шару»:</b>\n\n${text}`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [[
@@ -613,7 +613,7 @@ app.post("/api/bot/webhook", async (req, res) => {
 
       const response = {
         chat_id: chatId,
-        text: "🔥 Ласкаво просимо в VAPER!\n\nНатисни кнопку нижче щоб відкрити магазин:",
+        text: "🛍️ Ласкаво просимо до магазину «На Шару»!\n\nНатисни кнопку нижче щоб переглянути товари:",
         reply_markup: {
           inline_keyboard: [
             [
@@ -1998,7 +1998,7 @@ app.post("/api/messages/send", async (req, res) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         chat_id: clientId,
-        text: `💬 <b>Повідомлення від VAPER:</b>\n\n${message}`,
+        text: `💬 <b>Повідомлення від магазину На Шару:</b>\n\n${message}`,
         parse_mode: 'HTML'
       })
     });
@@ -2048,7 +2048,7 @@ app.post("/api/messages/broadcast", async (req, res) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: telegramId,
-            text: `💬 <b>Повідомлення від VAPER:</b>\n\n${message}`,
+            text: `💬 <b>Повідомлення від магазину На Шару:</b>\n\n${message}`,
             parse_mode: 'HTML'
           })
         });
