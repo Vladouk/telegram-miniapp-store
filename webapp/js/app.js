@@ -388,6 +388,81 @@ window.quickAddToCart = function (event, productId) {
     }
 }
 
+// Пагінований рендеринг товарів в адмін панелі
+let adminProductsPage = 0;
+const ADMIN_PRODUCTS_PER_PAGE = 20;
+
+window.renderAdminProductsList = function (page) {
+    if (page !== undefined) adminProductsPage = page;
+
+    const searchInput = document.getElementById('adminProductSearch');
+    const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+
+    let filtered = products.products;
+    if (query) {
+        filtered = filtered.filter(p =>
+            p.name.toLowerCase().includes(query) ||
+            (p.category && p.category.toLowerCase().includes(query))
+        );
+    }
+
+    const totalPages = Math.ceil(filtered.length / ADMIN_PRODUCTS_PER_PAGE);
+    if (adminProductsPage >= totalPages) adminProductsPage = Math.max(0, totalPages - 1);
+
+    const start = adminProductsPage * ADMIN_PRODUCTS_PER_PAGE;
+    const pageItems = filtered.slice(start, start + ADMIN_PRODUCTS_PER_PAGE);
+
+    const productsList = document.getElementById('adminProductsList');
+    if (!productsList) return;
+
+    if (pageItems.length === 0) {
+        productsList.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-light);">Товари не знайдені</p>';
+    } else {
+        const fragment = document.createDocumentFragment();
+        pageItems.forEach(p => {
+            const row = document.createElement('div');
+            row.style.cssText = 'background:var(--light);padding:12px;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;gap:12px;';
+
+            const imgHtml = p.imageUrl
+                ? `<img loading="lazy" src="${p.imageUrl}" style="width:50px;height:50px;object-fit:cover;border-radius:8px;margin-right:10px;vertical-align:middle;cursor:pointer;" onclick="editProductImage(${p.id})" onerror="this.style.display='none'">`
+                : `<div style="width:50px;height:50px;background:var(--bg);border-radius:8px;margin-right:10px;display:inline-flex;align-items:center;justify-content:center;font-size:24px;cursor:pointer;vertical-align:middle;" onclick="editProductImage(${p.id})">${p.emoji || '📦'}</div>`;
+
+            row.innerHTML = `
+                <div style="flex:1;">
+                    ${imgHtml}
+                    <strong>${p.emoji ? p.emoji + ' ' : '📦 '}${p.name}</strong>
+                    <div style="font-size:12px;color:var(--text-light);">
+                        ${p.price} zł | ${p.category}${p.brand ? ' | ' + p.brand : ''}
+                        <br>📦 На складі: <strong style="color:${p.stockQuantity > 0 ? 'green' : 'red'};">${p.stockQuantity} шт.</strong>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <input type="number" value="${p.stockQuantity}" min="0" oninput="updateStock(${p.id}, this.value)" style="width:70px;padding:6px;border:1px solid var(--border);border-radius:6px;text-align:center;">
+                    <button onclick="deleteProduct(${p.id})" class="btn-small" style="background:#ff6b6b;">🗑️</button>
+                </div>
+            `;
+            fragment.appendChild(row);
+        });
+        productsList.innerHTML = '';
+        productsList.appendChild(fragment);
+    }
+
+    // Пагінація
+    const paginationEl = document.getElementById('adminProductsPagination');
+    if (paginationEl) {
+        if (totalPages <= 1) {
+            paginationEl.innerHTML = '';
+        } else {
+            let btns = '';
+            for (let i = 0; i < totalPages; i++) {
+                const active = i === adminProductsPage ? 'background:#007aff;color:#fff;' : 'background:var(--light);';
+                btns += `<button onclick="renderAdminProductsList(${i})" style="${active}border:1px solid var(--border);border-radius:6px;padding:6px 12px;cursor:pointer;font-size:13px;">${i + 1}</button>`;
+            }
+            paginationEl.innerHTML = `<span style="font-size:13px;color:var(--text-light);align-self:center;">Сторінка:</span>${btns}<span style="font-size:12px;color:var(--text-light);align-self:center;">(${filtered.length} товарів)</span>`;
+        }
+    }
+};
+
 // Функція для адмін панелі
 window.showAdminTab = function (tab) {
     const adminContent = document.getElementById('adminContent');
@@ -587,47 +662,17 @@ window.showAdminTab = function (tab) {
                 </form>
 
                 <h3>📦 Наявні товари</h3>
+                <div style="margin-bottom: 10px;">
+                    <input type="text" id="adminProductSearch" placeholder="🔍 Пошук товарів..." oninput="renderAdminProductsList()" style="width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; box-sizing: border-box;">
+                </div>
                 <div id="adminProductsList"></div>
+                <div id="adminProductsPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px; flex-wrap: wrap;"></div>
             </div>
         `;
 
-        // Показ списку товарів
-        const productsList = document.getElementById('adminProductsList');
-        productsList.innerHTML = products.products.map(p => `
-            <div style="background: var(--light); padding: 12px; border-radius: 8px; margin-bottom: 10px; display: flex; justify-content: space-between; align-items: center; gap: 12px;">
-                <div style="flex: 1;">
-                    ${p.imageUrl ? `<img src="${p.imageUrl}" style="width: 50px; height: 50px; object-fit: cover; border-radius: 8px; margin-right: 10px; vertical-align: middle; cursor: pointer;" onclick="editProductImage(${p.id})" onerror="this.style.display='none'">` : `<div style="width: 50px; height: 50px; background: var(--bg); border-radius: 8px; margin-right: 10px; vertical-align: middle; cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 24px;" onclick="editProductImage(${p.id})">${p.emoji || '📦'}</div>`}
-                    <strong>${p.emoji ? p.emoji + ' ' : '📦 '}${p.name}</strong>
-                    <div style="font-size: 12px; color: var(--text-light);">
-                        ${p.price} zł | ${p.category}${p.brand ? ' | ' + p.brand : ''}
-                        <br>📦 На складі: <strong style="color: ${p.stockQuantity > 0 ? 'green' : 'red'};">${p.stockQuantity} шт.</strong>
-                    </div>
-                </div>
-                <div style="display: flex; gap: 8px; align-items: center;">
-                    <input type="number" value="${p.stockQuantity}" min="0" oninput="updateStock(${p.id}, this.value)" style="width: 70px; padding: 6px; border: 1px solid var(--border); border-radius: 6px; text-align: center;">
-                    <button onclick="deleteProduct(${p.id})" class="btn-small" style="background: #ff6b6b;">🗑️</button>
-                </div>
-            </div>
-        `).join('');
-
-        // Обробник для завантаження файлу
-        setTimeout(() => {
-            const fileInput = document.getElementById('adminProductImageFile');
-            if (fileInput) {
-                fileInput.addEventListener('change', function (e) {
-                    const file = e.target.files[0];
-                    if (file) {
-                        const reader = new FileReader();
-                        reader.onload = function (event) {
-                            document.getElementById('adminProductImageUrl').value = event.target.result;
-                            const preview = document.getElementById('previewImage');
-                            preview.innerHTML = '<img src="' + event.target.result + '" style="max-width: 150px; border-radius: 8px;">';
-                        };
-                        reader.readAsDataURL(file);
-                    }
-                });
-            }
-        }, 0);
+        // Показ списку товарів з пагінацією та пошуком
+        adminProductsPage = 0;
+        renderAdminProductsList();
 
     } else if (tab === 'orders') {
         adminContent.innerHTML = `

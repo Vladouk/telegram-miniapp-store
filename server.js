@@ -1162,7 +1162,6 @@ app.get("/api/products/:id", async (req, res) => {
   try {
     const product = await prisma.product.findUnique({
       where: { id: parseInt(req.params.id, 10) },
-      include: { orders: true },
     });
     if (!product) return res.status(404).json({ error: "Product not found" });
     res.json(product);
