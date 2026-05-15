@@ -1059,7 +1059,7 @@ window.addNewProduct = async function () {
     const subcategory = document.getElementById('adminProductSubcategory').value;
     const emoji = document.getElementById('adminProductEmoji').value.trim();
     const imageUrl = document.getElementById('adminProductImageUrl').value.trim();
-    const imageFile = document.getElementById('adminProductImageFile').files[0];
+    const imageFile = document.getElementById('adminProductImageFile') ? document.getElementById('adminProductImageFile').files[0] : null;
     const stockQuantity = parseInt(document.getElementById('adminProductStock').value) || 0;
     const description = document.getElementById('adminProductDesc').value.trim();
 
@@ -1127,10 +1127,12 @@ window.addNewProduct = async function () {
         document.getElementById('adminProductSubcategory').value = '';
         document.getElementById('adminProductEmoji').value = '';
         document.getElementById('adminProductImageUrl').value = '';
-        document.getElementById('adminProductImageFile').value = '';
+        const imgFileEl = document.getElementById('adminProductImageFile');
+        if (imgFileEl) imgFileEl.value = '';
         document.getElementById('adminProductStock').value = '';
         document.getElementById('adminProductDesc').value = '';
-        document.getElementById('previewImage').innerHTML = '';
+        const previewEl = document.getElementById('previewImage');
+        if (previewEl) previewEl.innerHTML = '';
         document.getElementById('subcategoryGroup').style.display = 'none';
 
         showAdminTab('products');
