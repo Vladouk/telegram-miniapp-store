@@ -1693,6 +1693,7 @@ app.get("/api/orders/user/:telegramId", async (req, res) => {
       pickupLocation: order.pickupLocation,
       customerNotes: order.customerNotes,
       status: order.status,
+      isPaid: order.isPaid || false,
       createdAt: order.createdAt,
     }));
 
@@ -1882,6 +1883,36 @@ app.put("/api/orders/:orderId/confirm", async (req, res) => {
     res.json(order);
   } catch (error) {
     console.error('Error confirming order:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Позначити замовлення як оплачене (адмін)
+app.put("/api/orders/:orderId/mark-paid", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) {
+      return res.status(403).json({ error: "Not authorized" });
+    }
+    const orderId = parseInt(req.params.orderId, 10);
+    const order = await prisma.order.update({
+      where: { id: orderId },
+      data: { isPaid: true }
+    });
+    // Повідомити клієнта
+    try {
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: order.telegramId.toString(),
+          text: `✅ <b>Оплату підтверджено!</b>\n\n📦 Замовлення #${order.orderNumber} позначено як оплачене.\n\nДякуємо! 🎉`,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch(e) {}
+    res.json({ success: true, isPaid: true });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

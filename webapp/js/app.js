@@ -1301,83 +1301,84 @@ window.deleteProduct = async function (productId) {
 
 async function loadAdminOrders() {
     try {
-        console.log('📦 Loading admin orders...');
         const url = CONFIG.API_URL + '/orders/admin/all';
-        console.log('📡 Fetching from:', url);
         const adminHeaders = getAdminHeaders();
         const response = await axios.get(url, { headers: adminHeaders });
-        console.log('✅ Orders received:', response.data);
         const orders = response.data;
         const ordersList = document.getElementById('adminOrdersList');
 
-        if (orders.length === 0) {
-            ordersList.innerHTML = '<p>Замовлень не знайдено</p>';
+        if (!orders || orders.length === 0) {
+            ordersList.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-light);">Замовлень не знайдено</p>';
             return;
         }
 
         ordersList.innerHTML = orders.map(order => {
-            // Парсимо items з JSON
-            let itemsText = '';
+            const isPaid = order.isPaid;
+            const isConfirmed = order.status === 'confirmed';
+            const orderId = order.id;
+            const telegramId = order.telegramId || order.telegram_id;
+
+            // Колір рамки і бейджа
+            const borderColor = isPaid ? '#27ae60' : '#e74c3c';
+            const statusBg = isPaid ? 'rgba(39,174,96,0.1)' : 'rgba(231,76,60,0.08)';
+            const paidBadge = isPaid
+                ? '<span style="padding:4px 12px;background:#27ae60;color:#fff;border-radius:999px;font-size:11px;font-weight:700;">✅ Оплачено</span>'
+                : '<span style="padding:4px 12px;background:#e74c3c;color:#fff;border-radius:999px;font-size:11px;font-weight:700;">🔴 Не оплачено</span>';
+
+            const statusBadge = isConfirmed
+                ? '<span style="padding:4px 10px;background:#27ae60;color:#fff;border-radius:999px;font-size:11px;">✅ Підтверджено</span>'
+                : '<span style="padding:4px 10px;background:#f39c12;color:#fff;border-radius:999px;font-size:11px;">⏳ Очікує</span>';
+
+            // Товари
+            let itemsHtml = '';
             try {
                 const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]');
-                itemsText = items.map(item => {
-                    const productId = item.product_id || item.productId || item.id;
-                    const productName = item.name || item.product_name || item.title || (productId ? products.getProductById(productId)?.name : null);
-                    const label = productName || (productId ? `Товар #${productId}` : 'Товар');
-                    return `${label} x${item.quantity || 1}`;
-                }).join(', ');
-            } catch (e) {
-                itemsText = 'Товари не вказані';
-            }
+                itemsHtml = items.map(item => {
+                    const pid = item.product_id || item.productId;
+                    const name = item.name || (pid ? products.getProductById(pid)?.name : null) || `Товар #${pid}`;
+                    return `<div style="display:flex;justify-content:space-between;font-size:12px;padding:3px 0;">
+                        <span>${name} x${item.quantity}</span>
+                        <span>${((item.price || 0) * item.quantity).toFixed(2)} грн</span>
+                    </div>`;
+                }).join('');
+            } catch(e) { itemsHtml = '<div style="font-size:12px;color:var(--text-light);">Товари не вказані</div>'; }
 
-            const isConfirmed = order.isConfirmed || order.status === 'confirmed';
-            const orderId = order.id || order.orderId || order.order_id;
-            const telegramId = order.telegramId || order.telegram_id || order.userId || order.user_id || order.user?.telegramId || order.user?.telegram_id;
-
-            // Обчислюємо стоимість доставки якщо чомусь вона не в order
-            let deliveryFeeDisplay = '';
-            if (order.deliveryAddress) {
-                // Для доставки показуємо інформацію про вартість
-                deliveryFeeDisplay = `<br>🚚 <strong>Доставка</strong>: уточніть у замовника`;
-            }
+            const deliveryInfo = order.deliveryAddress
+                ? `<div style="font-size:12px;margin-top:4px;">🚚 ${order.deliveryAddress}</div>`
+                : order.pickupLocation
+                ? `<div style="font-size:12px;margin-top:4px;">📍 ${order.pickupLocation}</div>`
+                : '';
 
             return `
-            <div style="background: var(--light); padding: 16px; border-radius: 8px; margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: start;">
-                    <div style="flex: 1;">
-                        <div style="margin-bottom: 8px;">
-                            <strong>#${order.orderNumber}</strong>
-                            <span style="padding: 4px 12px; background: var(--primary); color: white; border-radius: 6px; font-size: 11px; margin-left: 8px;">
-                                ${(order.status || 'pending').toUpperCase()}
-                            </span>
-                        </div>
-                        <div style="font-size: 13px; color: var(--text-light); margin-bottom: 8px;">
-                            👤 <strong>Клієнт</strong><br>
-                            🆔 ID: ${telegramId || 'невідомо'}
-                            ${telegramId ? `<button onclick="showClientDetails('${telegramId}')" style="margin-left: 8px; padding: 4px 8px; background: #4a90e2; color: white; border: none; border-radius: 6px; font-size: 11px; cursor: pointer;">🔗 Відкрити клієнта</button>` : ''}
-                        </div>
-                        <div style="font-size: 12px; color: var(--text-light);">
-                            📦 Товари: ${itemsText || 'Товари не вказані'}${deliveryFeeDisplay}<br>
-                            💳 Оплата: ${getPaymentMethodName(order.paymentMethod)}<br>
-                            💰 Сума: <strong>${(order.totalPrice || 0).toFixed(2)} грн</strong><br>
-                            📅 ${new Date(order.createdAt).toLocaleString('uk-UA')}<br>
-                            ${order.deliveryAddress ? `🚚 Адреса: ${order.deliveryAddress}` : ''}
-                            ${order.pickupLocation ? `📍 Самовивіз: ${order.pickupLocation}` : ''}
-                        </div>
-                        <div style="margin-top: 10px; display: flex; gap: 8px; flex-wrap: wrap;">
-                                ${isConfirmed
-                    ? '<span style="padding: 8px 14px; background: linear-gradient(135deg, #2ecc71 0%, #27ae60 100%); color: white; border-radius: 8px; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(46, 204, 113, 0.3);">✅ Підтверджено</span>'
-                    : (orderId
-                        ? `<button style="padding: 8px 14px; background: linear-gradient(135deg, #27ae60 0%, #229954 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(39, 174, 96, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(39, 174, 96, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(39, 174, 96, 0.3)';" onclick="confirmAdminOrder(${orderId})">✅ Підтвердити</button>`
-                        : '<span style="padding: 8px 14px; background: #e67e22; color: white; border-radius: 8px; font-size: 12px; font-weight: 500;">⚠️ Немає ID</span>')
-                }
-                            <button style="padding: 8px 14px; background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(243, 156, 18, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(243, 156, 18, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(243, 156, 18, 0.3)';" onclick="setDeliveryFee(${orderId})">🚚 Доставка</button>
-                            <button style="padding: 8px 14px; background: linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%); color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 12px; font-weight: 500; box-shadow: 0 2px 8px rgba(255, 107, 107, 0.3); transition: all 0.3s ease;" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 12px rgba(255, 107, 107, 0.4)';" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 8px rgba(255, 107, 107, 0.3)';" onclick="deleteOrder(${orderId})">🗑️ Видалити</button>
-                        </div>
+            <div style="background:var(--surface);border-radius:14px;margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow);border-left:4px solid ${borderColor};">
+                <div style="padding:12px 14px;background:${statusBg};display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
+                    <div>
+                        <span style="font-weight:700;font-size:14px;">#${order.orderNumber}</span>
+                        <span style="font-size:11px;color:var(--text-light);margin-left:8px;">${new Date(order.createdAt).toLocaleString('uk-UA')}</span>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-wrap:wrap;">${paidBadge} ${statusBadge}</div>
+                </div>
+                <div style="padding:12px 14px;">
+                    <div style="font-size:12px;color:var(--text-light);margin-bottom:8px;">
+                        👤 ID: <b>${telegramId}</b>
+                        ${telegramId ? `<button onclick="showClientDetails('${telegramId}')" style="margin-left:6px;padding:3px 8px;background:#4a90e2;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">Клієнт</button>` : ''}
+                    </div>
+                    <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:8px;">${itemsHtml}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                        <span style="font-size:12px;color:var(--text-light);">💳 ${getPaymentMethodName(order.paymentMethod)}</span>
+                        <span style="font-size:15px;font-weight:700;color:var(--primary-strong);">${(order.totalPrice || 0).toFixed(2)} грн</span>
+                    </div>
+                    ${deliveryInfo}
+                    ${order.customerNotes ? `<div style="font-size:12px;margin-top:4px;color:var(--text-light);">📝 ${order.customerNotes}</div>` : ''}
+                    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
+                        ${!isConfirmed && orderId ? `<button onclick="confirmAdminOrder(${orderId})" style="padding:8px 14px;background:#27ae60;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">✅ Підтвердити</button>` : ''}
+                        ${!isPaid && orderId ? `<button onclick="markOrderPaid(${orderId})" style="padding:8px 14px;background:#2980b9;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">💳 Оплачено</button>` : ''}
+                        ${orderId ? `<button onclick="setDeliveryFee(${orderId})" style="padding:8px 14px;background:#f39c12;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">🚚 Доставка</button>` : ''}
+                        ${orderId ? `<button onclick="deleteOrder(${orderId})" style="padding:8px 14px;background:#e74c3c;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">🗑️</button>` : ''}
                     </div>
                 </div>
-            </div>
-        `}).join('');
+            </div>`;
+        }).join('');
     } catch (error) {
         console.error('Error loading orders:', error);
         document.getElementById('adminOrdersList').innerHTML = `<p>❌ Помилка завантаження: ${error.message}</p>`;
@@ -2399,6 +2400,29 @@ window.contactOwner = function () {
     window.open('https://t.me/+380680162091', '_blank');
 }
 
+// Позначити замовлення як оплачене (адмін)
+window.markOrderPaid = async function (orderId) {
+    if (!confirm('Позначити замовлення як оплачене?')) return;
+    try {
+        showLoading(true);
+        const adminHeaders = getAdminHeaders();
+        const response = await fetch(`${CONFIG.API_URL}/orders/${orderId}/mark-paid`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders }
+        });
+        if (response.ok) {
+            showToast('✅ Замовлення позначено як оплачене!');
+            loadAdminOrders();
+        } else {
+            showToast('❌ Помилка');
+        }
+    } catch(e) {
+        showToast('❌ Помилка: ' + e.message);
+    } finally {
+        showLoading(false);
+    }
+}
+
 // Функції для управління користувачем
 window.checkAdmin = async function () {
     console.log('🔐 Admin button clicked');
@@ -2462,24 +2486,16 @@ window.loadOrderHistory = async function () {
         const currentUser = JSON.parse(localStorage.getItem('currentUser') || '{}');
         const telegramId = currentUser.telegramId || currentUser.telegram_id;
 
-        console.log('📦 Loading order history for user:', currentUser);
-        console.log('📦 Using telegramId:', telegramId);
-
         if (!telegramId) {
-            console.log('❌ No telegramId found');
             document.getElementById('historyEmpty').style.display = 'block';
             document.getElementById('historyList').style.display = 'none';
             return;
         }
 
         const orders = await apiCall('GET', `/orders/user/${telegramId}`);
-        console.log('📦 Orders received:', orders);
-        console.log('📦 Orders count:', orders?.length);
-
         const historyList = document.getElementById('historyList');
 
         if (!orders || orders.length === 0) {
-            console.log('📦 No orders found');
             document.getElementById('historyEmpty').style.display = 'block';
             document.getElementById('historyList').style.display = 'none';
             return;
@@ -2488,26 +2504,95 @@ window.loadOrderHistory = async function () {
         document.getElementById('historyEmpty').style.display = 'none';
         historyList.style.display = 'block';
 
-        historyList.innerHTML = orders.map(order => `
-            <div style="background: var(--light); padding: 16px; border-radius: 12px; margin-bottom: 12px;">
-                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;">
-                    <strong>#${order.orderNumber}</strong>
-                    <span style="padding: 4px 12px; background: var(--primary); color: white; border-radius: 6px; font-size: 12px;">
-                        ${order.status.toUpperCase()}
-                    </span>
+        historyList.innerHTML = orders.map(order => {
+            const isPaid = order.isPaid;
+            const isConfirmed = order.status === 'confirmed';
+            const statusColor = isPaid ? '#27ae60' : (isConfirmed ? '#f39c12' : '#e74c3c');
+            const statusBg = isPaid ? 'rgba(39,174,96,0.12)' : (isConfirmed ? 'rgba(243,156,18,0.12)' : 'rgba(231,76,60,0.12)');
+            const statusText = isPaid ? '✅ Оплачено' : (isConfirmed ? '🟡 Підтверджено' : '🔴 Очікує оплати');
+
+            let itemsHtml = '';
+            try {
+                const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]');
+                itemsHtml = items.map(item => {
+                    const name = item.name || `Товар #${item.product_id}`;
+                    return `<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+                        <span>${name} x${item.quantity}</span>
+                        <span style="font-weight:600;">${(item.price * item.quantity).toFixed(2)} грн</span>
+                    </div>`;
+                }).join('');
+            } catch(e) {}
+
+            const deliveryInfo = order.deliveryAddress
+                ? `<div style="font-size:13px;margin-top:6px;">🚚 <b>Доставка:</b> ${order.deliveryAddress}</div>`
+                : order.pickupLocation
+                ? `<div style="font-size:13px;margin-top:6px;">📍 <b>Самовивіз:</b> ${order.pickupLocation}</div>`
+                : '';
+
+            const screenshotBtn = !isPaid && order.paymentMethod === 'card' ? `
+                <div style="margin-top:12px;padding:12px;background:rgba(0,102,204,0.07);border-radius:10px;border:1px dashed #b3d4f5;">
+                    <div style="font-size:13px;font-weight:600;margin-bottom:8px;">💳 Надішліть скріншот оплати</div>
+                    <div style="display:flex;gap:8px;">
+                        <label style="flex:1;padding:10px;background:var(--secondary);color:#fff;border-radius:999px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;">
+                            📷 Камера<input type="file" accept="image/*" capture="environment" style="display:none;" onchange="uploadOrderScreenshot(this,'${order.orderNumber}','${order.telegramId}')">
+                        </label>
+                        <label style="flex:1;padding:10px;background:var(--light);border:1px solid var(--border);border-radius:999px;text-align:center;cursor:pointer;font-size:13px;font-weight:600;">
+                            🖼️ Галерея<input type="file" accept="image/*" style="display:none;" onchange="uploadOrderScreenshot(this,'${order.orderNumber}','${order.telegramId}')">
+                        </label>
+                    </div>
+                    <div id="screenshotStatus_${order.orderNumber}" style="font-size:12px;text-align:center;margin-top:6px;color:var(--text-light);"></div>
+                </div>` : '';
+
+            return `
+            <div style="background:var(--surface);border-radius:16px;margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow);border:1.5px solid ${statusColor}30;">
+                <div style="padding:14px 16px;background:${statusBg};display:flex;justify-content:space-between;align-items:center;">
+                    <div>
+                        <div style="font-weight:700;font-size:15px;">#${order.orderNumber}</div>
+                        <div style="font-size:12px;color:var(--text-light);margin-top:2px;">${new Date(order.createdAt).toLocaleString('uk-UA')}</div>
+                    </div>
+                    <div style="padding:6px 14px;background:${statusColor};color:#fff;border-radius:999px;font-size:12px;font-weight:700;">${statusText}</div>
                 </div>
-                <div style="color: var(--text-light); font-size: 14px;">
-                    <div>Дата: ${new Date(order.createdAt).toLocaleString('uk-UA')}</div>
-                        <div>Сума: <strong>${order.totalPrice.toFixed(2)} грн${(order.paymentMethod || order.payment_method) === 'card' ? ` (${(Math.round(order.totalPrice * currentExchangeRate * 100) / 100).toFixed(2)} грн)` : ''}</strong></div>
-                        <div>Оплата: ${getPaymentMethodName(order.paymentMethod)}</div>
+                <div style="padding:14px 16px;">
+                    <div style="margin-bottom:10px;">${itemsHtml}</div>
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-top:8px;">
+                        <span style="font-size:13px;color:var(--text-light);">💳 ${getPaymentMethodName(order.paymentMethod)}</span>
+                        <span style="font-size:16px;font-weight:700;color:var(--primary-strong);">${order.totalPrice.toFixed(2)} грн</span>
+                    </div>
+                    ${deliveryInfo}
+                    ${screenshotBtn}
                 </div>
-            </div>
-        `).join('');
+            </div>`;
+        }).join('');
 
     } catch (error) {
         console.error('Error loading history:', error);
         document.getElementById('historyEmpty').style.display = 'block';
         document.getElementById('historyList').style.display = 'none';
+    }
+}
+
+// Завантаження скріншоту оплати з сторінки історії
+window.uploadOrderScreenshot = async function (input, orderNumber, telegramId) {
+    const file = input.files[0];
+    if (!file) return;
+    const statusEl = document.getElementById('screenshotStatus_' + orderNumber);
+    if (statusEl) statusEl.textContent = '⏳ Відправляємо...';
+    try {
+        const formData = new FormData();
+        formData.append('photo', file);
+        formData.append('telegram_id', String(telegramId || getCurrentTelegramId()));
+        formData.append('order_number', orderNumber);
+        const response = await fetch(CONFIG.API_URL + '/orders/payment-screenshot', {
+            method: 'POST',
+            body: formData
+        });
+        if (response.ok) {
+            if (statusEl) statusEl.innerHTML = '<span style="color:green;">✅ Скріншот надіслано!</span>';
+        } else {
+            throw new Error('Помилка');
+        }
+    } catch(e) {
+        if (statusEl) statusEl.innerHTML = '<span style="color:red;">❌ Помилка. Надішліть скріншот в чат бота.</span>';
     }
 }
 
