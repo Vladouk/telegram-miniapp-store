@@ -1469,7 +1469,7 @@ app.post("/api/orders", async (req, res) => {
       delivery_type: delivery_type,
       delivery_fee: deliveryEstimate,
       delivery_address: delivery_address || null,
-      baseTotal: baseTotal
+      baseTotal: itemsTotal
     });
 
     // Convert BigInt to string for JSON serialization
