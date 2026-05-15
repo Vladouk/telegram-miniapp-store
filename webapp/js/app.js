@@ -675,63 +675,45 @@ window.showAdminTab = function (tab) {
         loadAdminStats();
     } else if (tab === 'products') {
         console.log('📦 showAdminTab products START');
-        adminContent.innerHTML = `
-            <div style="margin-top: 20px;">
-                <h3 style="margin-bottom: 16px;">➕ Додати новий товар</h3>
-                <form style="background: var(--light); padding: 24px; border-radius: 16px; margin-bottom: 20px; box-shadow: 0 2px 8px rgba(0,0,0,0.05);">
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📝 Назва товару:</label>
-                        <input type="text" id="adminProductName" placeholder="Наприклад: ELFLIQ Полуниця" required style="font-size: 16px; padding: 14px;">
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">💰 Ціна (zł):</label>
-                        <input type="number" id="adminProductPrice" placeholder="120" min="1" step="0.01" required style="font-size: 16px; padding: 14px;">
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📦 Категорія:</label>
-                        <select id="adminProductCategory" onchange="toggleBrandField()" required style="font-size: 16px; padding: 14px;">
-                            <option value="">-- Вибери категорію --</option>
-                        </select>
-                    </div>
-                    <div class="form-group" id="subcategoryGroup" style="display: none;">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📂 Підкатегорія:</label>
-                        <select id="adminProductSubcategory" style="font-size: 16px; padding: 14px;">
-                            <option value="">-- Вибери підкатегорію --</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">😊 Емодзі (необов'язково):</label>
-                        <input type="text" id="adminProductEmoji" placeholder="🍓" maxlength="2" style="font-size: 20px; padding: 14px; text-align: center;">
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Або залиш порожнім - буде автоматично ⚡ або 💨</small>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">�️ URL фотки (необов'язково):</label>
-                        <input type="url" id="adminProductImageUrl" placeholder="https://example.com/image.jpg" style="font-size: 14px; padding: 14px;">
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Вставте посилання на фото товару</small>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📦 Кількість товару:</label>
-                        <input type="number" id="adminProductStock" placeholder="50" min="0" required style="font-size: 16px; padding: 14px;">
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Вкажи скільки одиниць товару в наявності</small>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">�📄 Опис:</label>
-                        <textarea id="adminProductDesc" placeholder="Детальний опис товару, смак, особливості..." required style="font-size: 15px; padding: 14px; min-height: 120px;"></textarea>
-                    </div>
-                    <button type="button" onclick="addNewProduct()" class="btn btn-primary btn-full" style="font-size: 17px; padding: 16px; font-weight: 600; margin-top: 8px;">✅ Додати товар</button>
-                </form>
 
-                <h3>📦 Наявні товари</h3>
-                <div style="margin-bottom: 10px;">
-                    <input type="text" id="adminProductSearch" placeholder="🔍 Пошук товарів..." oninput="renderAdminProductsList()" style="width: 100%; padding: 10px 14px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px; box-sizing: border-box;">
-                </div>
-                <div id="adminProductsList"></div>
-                <div id="adminProductsPagination" style="display: flex; justify-content: center; gap: 8px; margin-top: 12px; flex-wrap: wrap;"></div>
-            </div>
-        `;
+        // Будуємо HTML через DOM щоб уникнути проблем з template literal
+        const wrapper = document.createElement('div');
+        wrapper.style.marginTop = '20px';
+
+        // Форма додавання товару
+        wrapper.innerHTML = [
+            '<h3 style="margin-bottom:16px;">➕ Додати новий товар</h3>',
+            '<div style="background:var(--light);padding:24px;border-radius:16px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,0.05);">',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Назва товару:</label>',
+            '<input type="text" id="adminProductName" placeholder="Назва товару" style="font-size:16px;padding:14px;"></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Ціна (zł):</label>',
+            '<input type="number" id="adminProductPrice" placeholder="120" min="1" step="0.01" style="font-size:16px;padding:14px;"></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Категорія:</label>',
+            '<select id="adminProductCategory" onchange="toggleBrandField()" style="font-size:16px;padding:14px;">',
+            '<option value="">-- Вибери категорію --</option></select></div>',
+            '<div class="form-group" id="subcategoryGroup" style="display:none;"><label style="font-size:15px;font-weight:600;">Підкатегорія:</label>',
+            '<select id="adminProductSubcategory" style="font-size:16px;padding:14px;"><option value="">-- Вибери підкатегорію --</option></select></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Емодзі (необов\'язково):</label>',
+            '<input type="text" id="adminProductEmoji" placeholder="🍓" maxlength="2" style="font-size:20px;padding:14px;text-align:center;"></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">URL фото (необов\'язково):</label>',
+            '<input type="url" id="adminProductImageUrl" placeholder="https://example.com/image.jpg" style="font-size:14px;padding:14px;"></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Кількість товару:</label>',
+            '<input type="number" id="adminProductStock" placeholder="50" min="0" style="font-size:16px;padding:14px;"></div>',
+            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Опис:</label>',
+            '<textarea id="adminProductDesc" placeholder="Детальний опис товару..." style="font-size:15px;padding:14px;min-height:120px;"></textarea></div>',
+            '<button type="button" onclick="addNewProduct()" class="btn btn-primary btn-full" style="font-size:17px;padding:16px;font-weight:600;">✅ Додати товар</button>',
+            '</div>',
+            '<h3>📦 Наявні товари</h3>',
+            '<div style="margin-bottom:10px;"><input type="text" id="adminProductSearch" placeholder="Пошук товарів..." oninput="renderAdminProductsList()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>',
+            '<div id="adminProductsList"></div>',
+            '<div id="adminProductsPagination" style="display:flex;justify-content:center;gap:8px;margin-top:12px;flex-wrap:wrap;"></div>'
+        ].join('');
+
+        adminContent.innerHTML = '';
+        adminContent.appendChild(wrapper);
 
         // Показ списку товарів з пагінацією та пошуком
-        console.log('📦 HTML inserted, calling renderAdminProductsList, products count:', products.products?.length);
+        console.log('📦 HTML inserted, calling renderAdminProductsList, products count:', products.products ? products.products.length : 'undefined');
         adminProductsPage = 0;
         renderAdminProductsList();
         console.log('📦 showAdminTab products DONE');
