@@ -686,7 +686,14 @@ window.showAdminTab = function (tab) {
     } else if (tab === 'orders') {
         adminContent.innerHTML = `
             <div style="margin-top: 20px;">
-                <h3>📋 Останні замовлення</h3>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+                    <h3 style="margin:0;">📋 Замовлення</h3>
+                    <div style="display:flex;gap:6px;">
+                        <button onclick="loadAdminOrders('all')" id="filterAll" style="padding:7px 14px;border-radius:999px;border:1px solid var(--border);background:var(--secondary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Всі</button>
+                        <button onclick="loadAdminOrders('unpaid')" id="filterUnpaid" style="padding:7px 14px;border-radius:999px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;font-size:12px;font-weight:600;cursor:pointer;">🔴 Не оплачені</button>
+                        <button onclick="loadAdminOrders('paid')" id="filterPaid" style="padding:7px 14px;border-radius:999px;border:1px solid #27ae60;background:transparent;color:#27ae60;font-size:12px;font-weight:600;cursor:pointer;">✅ Оплачені</button>
+                    </div>
+                </div>
                 <div id="adminOrdersList"></div>
             </div>
         `;
@@ -1299,13 +1306,17 @@ window.deleteProduct = async function (productId) {
     }
 }
 
-async function loadAdminOrders() {
+async function loadAdminOrders(filter = 'all') {
     try {
         const url = CONFIG.API_URL + '/orders/admin/all';
         const adminHeaders = getAdminHeaders();
         const response = await axios.get(url, { headers: adminHeaders });
-        const orders = response.data;
+        let orders = response.data;
         const ordersList = document.getElementById('adminOrdersList');
+
+        // Фільтрація
+        if (filter === 'unpaid') orders = orders.filter(o => !o.isPaid);
+        else if (filter === 'paid') orders = orders.filter(o => o.isPaid);
 
         if (!orders || orders.length === 0) {
             ordersList.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-light);">Замовлень не знайдено</p>';
@@ -1321,12 +1332,8 @@ async function loadAdminOrders() {
             // Ім'я клієнта
             const u = order.user;
             const clientName = u ? [u.firstName, u.lastName].filter(Boolean).join(' ') || u.username || `ID: ${telegramId}` : `ID: ${telegramId}`;
-            const clientUsername = u?.username ? `@${u.username}` : null;
-            const clientDisplay = clientUsername ? `${clientName} (${clientUsername})` : clientName;
-            // Посилання на чат через tg://
-            const clientLink = telegramId
-                ? `<a href="tg://user?id=${telegramId}" style="color:#4a90e2;text-decoration:none;font-weight:600;">${clientDisplay}</a>`
-                : clientDisplay;
+            const clientUsername = u?.username;
+            const clientDisplay = clientUsername ? `${clientName} (@${clientUsername})` : clientName;
 
             // Колір рамки і бейджа
             const borderColor = isPaid ? '#27ae60' : '#e74c3c';
@@ -1359,6 +1366,13 @@ async function loadAdminOrders() {
                 ? `<div style="font-size:12px;margin-top:4px;">📍 ${order.pickupLocation}</div>`
                 : '';
 
+            // Кнопка написати — через username або через adminStates бота
+            const writeBtn = clientUsername
+                ? `<button onclick="window.Telegram?.WebApp?.openTelegramLink('https://t.me/${clientUsername}')||window.open('https://t.me/${clientUsername}','_blank')" style="margin-left:6px;padding:3px 8px;background:#4a90e2;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">💬 Написати</button>`
+                : telegramId
+                ? `<button onclick="openAdminChat('${telegramId}')" style="margin-left:6px;padding:3px 8px;background:#4a90e2;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">💬 Написати</button>`
+                : '';
+
             return `
             <div style="background:var(--surface);border-radius:14px;margin-bottom:14px;overflow:hidden;box-shadow:var(--shadow);border-left:4px solid ${borderColor};">
                 <div style="padding:12px 14px;background:${statusBg};display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:6px;">
@@ -1370,8 +1384,7 @@ async function loadAdminOrders() {
                 </div>
                 <div style="padding:12px 14px;">
                     <div style="font-size:12px;color:var(--text-light);margin-bottom:8px;">
-                        👤 ${clientLink}
-                        ${telegramId ? `<button onclick="window.open('tg://user?id=${telegramId}','_blank')" style="margin-left:6px;padding:3px 8px;background:#4a90e2;color:#fff;border:none;border-radius:6px;font-size:11px;cursor:pointer;">💬 Написати</button>` : ''}
+                        👤 <b>${clientDisplay}</b>${writeBtn}
                     </div>
                     <div style="border-top:1px solid var(--border);padding-top:8px;margin-bottom:8px;">${itemsHtml}</div>
                     <div style="display:flex;justify-content:space-between;align-items:center;">
@@ -2415,7 +2428,15 @@ window.contactOwner = function () {
     window.open('https://t.me/+380680162091', '_blank');
 }
 
-// Позначити замовлення як оплачене (адмін)
+// Відкрити чат з клієнтом (якщо немає username — через бота)
+window.openAdminChat = function (telegramId) {
+    if (window.Telegram?.WebApp?.openTelegramLink) {
+        // Спробуємо через бота — відправимо команду написати
+        showToast('💬 Використайте кнопку "Написати клієнту" в боті');
+    } else {
+        showToast('💬 Відкрийте чат через Telegram бот');
+    }
+}
 window.markOrderPaid = async function (orderId) {
     if (!confirm('Позначити замовлення як оплачене?')) return;
     try {
