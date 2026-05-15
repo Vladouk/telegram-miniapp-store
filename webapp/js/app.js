@@ -2319,7 +2319,7 @@ function showOrderConfirmation(order, orderData) {
 
 window.contactOwner = function () {
     // Відкриває переписку з менеджером у Telegram
-    window.open('https://t.me/YOUR_SUPPORT_USERNAME', '_blank');
+    window.open('https://t.me/+380680162091', '_blank');
 }
 
 // Функції для управління користувачем
@@ -3038,7 +3038,7 @@ window.shareReferralCode = function () {
     });
 
     // Open the bot directly
-    window.open('https://t.me/YOUR_BOT_USERNAME', '_blank');
+    window.open('https://t.me/khan_varash_bot', '_blank');
 
     showToast('✅ Бота відкрито! Відправ код своєму другу!');
 }
