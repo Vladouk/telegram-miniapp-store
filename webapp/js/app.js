@@ -666,52 +666,20 @@ window.showAdminTab = function (tab) {
         loadAdminStats();
     } else if (tab === 'products') {
 
-        // Будуємо HTML через DOM щоб уникнути проблем з template literal
         const wrapper = document.createElement('div');
         wrapper.style.marginTop = '20px';
-
-        // Форма додавання товару
-        wrapper.innerHTML = [
-            '<h3 style="margin-bottom:16px;">➕ Додати новий товар</h3>',
-            '<div style="background:var(--light);padding:24px;border-radius:16px;margin-bottom:20px;box-shadow:0 2px 8px rgba(0,0,0,0.05);">',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Назва товару:</label>',
-            '<input type="text" id="adminProductName" placeholder="Назва товару" style="font-size:16px;padding:14px;"></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Ціна (zł):</label>',
-            '<input type="number" id="adminProductPrice" placeholder="120" min="1" step="0.01" style="font-size:16px;padding:14px;"></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Категорія:</label>',
-            '<select id="adminProductCategory" onchange="toggleBrandField()" style="font-size:16px;padding:14px;">',
-            '<option value="">-- Вибери категорію --</option></select></div>',
-            '<div class="form-group" id="subcategoryGroup" style="display:none;"><label style="font-size:15px;font-weight:600;">Підкатегорія:</label>',
-            '<select id="adminProductSubcategory" style="font-size:16px;padding:14px;"><option value="">-- Вибери підкатегорію --</option></select></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Емодзі (необов\'язково):</label>',
-            '<input type="text" id="adminProductEmoji" placeholder="🍓" maxlength="2" style="font-size:20px;padding:14px;text-align:center;"></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Фото товару (необов\'язково):</label>',
-            '<div id="adminPhotoPreview" style="display:none;margin-bottom:10px;"><img id="adminPhotoPreviewImg" style="max-width:100%;max-height:200px;border-radius:10px;object-fit:cover;"></div>',
-            '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px;">',
-            '<label style="flex:1;min-width:120px;padding:12px;background:var(--secondary);color:#fff;border-radius:999px;text-align:center;cursor:pointer;font-size:14px;font-weight:600;">📷 Камера<input type="file" id="adminProductImageCamera" accept="image/*" capture="environment" style="display:none;" onchange="handleAdminPhotoSelect(this)"></label>',
-            '<label style="flex:1;min-width:120px;padding:12px;background:var(--light);border:1px solid var(--border);border-radius:999px;text-align:center;cursor:pointer;font-size:14px;font-weight:600;">🖼️ Галерея<input type="file" id="adminProductImageFile" accept="image/*" style="display:none;" onchange="handleAdminPhotoSelect(this)"></label>',
-            '</div>',
-            '<input type="url" id="adminProductImageUrl" placeholder="або вставте URL фото..." style="font-size:14px;padding:12px;width:100%;box-sizing:border-box;border:1px solid var(--border);border-radius:10px;">',
-            '<small style="display:block;margin-top:6px;color:var(--text-light);font-size:12px;">Зробіть фото, виберіть з галереї або вставте посилання</small></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Кількість товару:</label>',
-            '<input type="number" id="adminProductStock" placeholder="50" min="0" style="font-size:16px;padding:14px;"></div>',
-            '<div class="form-group"><label style="font-size:15px;font-weight:600;">Опис:</label>',
-            '<textarea id="adminProductDesc" placeholder="Детальний опис товару..." style="font-size:15px;padding:14px;min-height:120px;"></textarea></div>',
-            '<button type="button" onclick="addNewProduct()" class="btn btn-primary btn-full" style="font-size:17px;padding:16px;font-weight:600;">✅ Додати товар</button>',
-            '</div>',
-            '<h3>📦 Наявні товари</h3>',
-            '<div style="margin-bottom:10px;"><input type="text" id="adminProductSearch" placeholder="Пошук товарів..." oninput="renderAdminProductsList()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>',
-            '<div id="adminProductsList"></div>',
-            '<div id="adminProductsPagination" style="display:flex;justify-content:center;gap:8px;margin-top:12px;flex-wrap:wrap;"></div>'
-        ].join('');
+        wrapper.innerHTML =
+            '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">' +
+            '<h3 style="margin:0;">📦 Товари</h3>' +
+            '<button onclick="openAddProductSheet()" class="btn btn-primary" style="padding:10px 18px;font-size:14px;margin-top:0;">➕ Додати товар</button>' +
+            '</div>' +
+            '<div style="margin-bottom:10px;"><input type="text" id="adminProductSearch" placeholder="Пошук товарів..." oninput="renderAdminProductsList()" style="width:100%;padding:10px 14px;border:1px solid var(--border);border-radius:8px;font-size:14px;box-sizing:border-box;"></div>' +
+            '<div id="adminProductsList"></div>' +
+            '<div id="adminProductsPagination" style="display:flex;justify-content:center;gap:8px;margin-top:12px;flex-wrap:wrap;"></div>';
 
         adminContent.innerHTML = '';
         adminContent.appendChild(wrapper);
 
-        // Заповнюємо категорії вручну
-        try { populateAdminCategorySelect(); } catch(e) {}
-
-        // Показ списку товарів
         adminProductsPage = 0;
         renderAdminProductsList();
 
@@ -1048,8 +1016,6 @@ window.toggleBrandField = function () {
 window.handleAdminPhotoSelect = function (input) {
     const file = input.files[0];
     if (!file) return;
-
-    // Показуємо прев'ю
     const reader = new FileReader();
     reader.onload = function (e) {
         const preview = document.getElementById('adminPhotoPreview');
@@ -1058,11 +1024,104 @@ window.handleAdminPhotoSelect = function (input) {
             previewImg.src = e.target.result;
             preview.style.display = 'block';
         }
-        // Очищаємо URL поле якщо вибрали файл
         const urlInput = document.getElementById('adminProductImageUrl');
         if (urlInput) urlInput.value = '';
     };
     reader.readAsDataURL(file);
+}
+
+window.removeAdminPhoto = function () {
+    const preview = document.getElementById('adminPhotoPreview');
+    const previewImg = document.getElementById('adminPhotoPreviewImg');
+    if (preview) preview.style.display = 'none';
+    if (previewImg) previewImg.src = '';
+    const cam = document.getElementById('adminProductImageCamera');
+    const gal = document.getElementById('adminProductImageFile');
+    if (cam) cam.value = '';
+    if (gal) gal.value = '';
+    const url = document.getElementById('adminProductImageUrl');
+    if (url) url.value = '';
+}
+
+// ── Add Product Bottom Sheet ──
+let _sheetStep = 0;
+const SHEET_STEPS = 3;
+
+window.openAddProductSheet = function () {
+    _sheetStep = 0;
+    _sheetUpdateUI();
+    // Заповнюємо категорії
+    try { populateAdminCategorySelect(); } catch(e) {}
+    // Скидаємо форму
+    ['adminProductName','adminProductPrice','adminProductEmoji',
+     'adminProductImageUrl','adminProductStock','adminProductDesc'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.value = '';
+    });
+    const catEl = document.getElementById('adminProductCategory');
+    if (catEl) catEl.value = '';
+    const subEl = document.getElementById('adminProductSubcategory');
+    if (subEl) subEl.innerHTML = '<option value="">-- Вибери підкатегорію --</option>';
+    const subGroup = document.getElementById('subcategoryGroup');
+    if (subGroup) subGroup.style.display = 'none';
+    removeAdminPhoto();
+    const sheet = document.getElementById('addProductSheet');
+    if (sheet) sheet.classList.add('open');
+}
+
+window.closeAddProductSheet = function () {
+    const sheet = document.getElementById('addProductSheet');
+    if (sheet) sheet.classList.remove('open');
+}
+
+window.handleSheetBackdropClick = function (e) {
+    if (e.target === document.getElementById('addProductSheet')) {
+        closeAddProductSheet();
+    }
+}
+
+window.sheetNextStep = function () {
+    // Валідація поточного кроку
+    if (_sheetStep === 0) {
+        const name = document.getElementById('adminProductName').value.trim();
+        const price = document.getElementById('adminProductPrice').value;
+        const cat = document.getElementById('adminProductCategory').value;
+        if (!name) { showToast('Введи назву товару'); return; }
+        if (!price || parseFloat(price) <= 0) { showToast('Введи ціну'); return; }
+        if (!cat) { showToast('Вибери категорію'); return; }
+    }
+    if (_sheetStep < SHEET_STEPS - 1) {
+        _sheetStep++;
+        _sheetUpdateUI();
+    } else {
+        // Останній крок — зберігаємо
+        addNewProduct();
+    }
+}
+
+window.sheetPrevStep = function () {
+    if (_sheetStep > 0) {
+        _sheetStep--;
+        _sheetUpdateUI();
+    }
+}
+
+function _sheetUpdateUI() {
+    // Кроки
+    for (let i = 0; i < SHEET_STEPS; i++) {
+        const step = document.getElementById('sheetStep' + i);
+        const dot = document.getElementById('stepDot' + i);
+        if (step) step.classList.toggle('active', i === _sheetStep);
+        if (dot) {
+            dot.classList.toggle('active', i === _sheetStep);
+            dot.classList.toggle('done', i < _sheetStep);
+        }
+    }
+    // Кнопки
+    const btnBack = document.getElementById('sheetBtnBack');
+    const btnNext = document.getElementById('sheetBtnNext');
+    if (btnBack) btnBack.style.display = _sheetStep > 0 ? 'block' : 'none';
+    if (btnNext) btnNext.textContent = _sheetStep === SHEET_STEPS - 1 ? '✅ Зберегти товар' : 'Далі →';
 }
 
 window.addNewProduct = async function () {
@@ -1153,6 +1212,7 @@ window.addNewProduct = async function () {
         document.getElementById('adminProductDesc').value = '';
         document.getElementById('subcategoryGroup').style.display = 'none';
 
+        closeAddProductSheet();
         showAdminTab('products');
     } catch (error) {
         showToast(`❌ Помилка: ${error.message}`);
