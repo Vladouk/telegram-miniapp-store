@@ -199,9 +199,12 @@ function setupEventListeners() {
         });
     }
 
-    // Кнопки навігації
-    document.getElementById('cartBtn').addEventListener('click', () => navigateTo('cart'));
-    document.getElementById('settingsBtn').addEventListener('click', () => navigateTo('settings'));
+    // Кнопки навігації (з перевіркою наявності елементів)
+    const cartBtn = document.getElementById('cartBtn');
+    if (cartBtn) cartBtn.addEventListener('click', () => navigateTo('cart'));
+
+    const settingsBtn = document.getElementById('settingsBtn');
+    if (settingsBtn) settingsBtn.addEventListener('click', () => navigateTo('settings'));
 
     const deliveryAddressInput = document.getElementById('deliveryAddress');
     if (deliveryAddressInput) {
