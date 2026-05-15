@@ -674,6 +674,7 @@ window.showAdminTab = function (tab) {
 
         loadAdminStats();
     } else if (tab === 'products') {
+        console.log('📦 showAdminTab products START');
         adminContent.innerHTML = `
             <div style="margin-top: 20px;">
                 <h3 style="margin-bottom: 16px;">➕ Додати новий товар</h3>
@@ -730,8 +731,10 @@ window.showAdminTab = function (tab) {
         `;
 
         // Показ списку товарів з пагінацією та пошуком
+        console.log('📦 HTML inserted, calling renderAdminProductsList, products count:', products.products?.length);
         adminProductsPage = 0;
         renderAdminProductsList();
+        console.log('📦 showAdminTab products DONE');
 
     } else if (tab === 'orders') {
         adminContent.innerHTML = `
