@@ -571,17 +571,6 @@ window.showAdminTab = function (tab) {
                     </div>
                     <div class="form-group">
                         <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">�️ URL фотки (необов'язково):</label>
-                        <input type="url" id="adminProductImage" placeholder="https://example.com/image.jpg" style="font-size: 14px; padding: 14px;">
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Вставте посилання на фото товару</small>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">📸 Завантажити фотку:</label>
-                        <input type="file" id="adminProductImageFile" accept="image/*" style="font-size: 14px; padding: 14px;">
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Завантажити з пристрою</small>
-                        <div id="previewImage" style="margin-top: 10px; max-width: 200px;"></div>
-                    </div>
-                    <div class="form-group">
-                        <label style="font-size: 15px; font-weight: 600; margin-bottom: 10px;">🌐 Або URL фотки (необов'язково):</label>
                         <input type="url" id="adminProductImageUrl" placeholder="https://example.com/image.jpg" style="font-size: 14px; padding: 14px;">
                         <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Вставте посилання на фото товару</small>
                     </div>
