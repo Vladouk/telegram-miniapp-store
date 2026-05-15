@@ -665,10 +665,6 @@ window.showAdminTab = function (tab) {
 
         loadAdminStats();
     } else if (tab === 'products') {
-        console.log('📦 showAdminTab products START');
-
-        // Спочатку показуємо простий текст для діагностики
-        adminContent.innerHTML = '<p id="productsDebug" style="padding:20px;color:red;font-size:18px;">⏳ Завантаження товарів...</p>';
 
         // Будуємо HTML через DOM щоб уникнути проблем з template literal
         const wrapper = document.createElement('div');
