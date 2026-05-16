@@ -1137,8 +1137,8 @@ window.addNewProduct = async function () {
     const stockQuantity = parseInt(document.getElementById('adminProductStock').value) || 0;
     const description = document.getElementById('adminProductDesc').value.trim();
 
-    if (!name || !price || !category || !subcategory || !description) {
-        showToast('Заповни всі поля!');
+    if (!name || !price || !category || !description) {
+        showToast('Заповни назву, ціну, категорію та опис!');
         return;
     }
 
