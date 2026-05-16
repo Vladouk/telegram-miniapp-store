@@ -737,39 +737,6 @@ window.showAdminTab = function (tab) {
                     <button type="button" onclick="sendBroadcastMessage()" class="btn btn-primary btn-full">📣 Відправити всім</button>
                     <div id="broadcastResult" style="margin-top: 8px; font-size: 12px; color: var(--text-light);"></div>
                 </div>
-
-                <h3>📦 Відправити трекінг клієнту</h3>
-                <div style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>Telegram ID клієнта:</label>
-                        <input type="text" id="trackingClientId" placeholder="1234567890">
-                    </div>
-                    <div class="form-group">
-                        <label>Номер замовлення:</label>
-                        <input type="text" id="trackingOrderNumber" placeholder="ORDER-5">
-                    </div>
-                    <div class="form-group">
-                        <label>Номер відстеження (ТТН):</label>
-                        <input type="text" id="trackingNumber" placeholder="20450000000000">
-                    </div>
-                    <div class="form-group">
-                        <label>Служба доставки:</label>
-                        <select id="trackingService">
-                            <option value="nova_poshta">🟡 Нова Пошта</option>
-                            <option value="ukr_poshta">🔵 Укрпошта</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label>Або прикріпіть скріншот:</label>
-                        <label style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface);border:1px dashed var(--border);border-radius:10px;cursor:pointer;">
-                            📎 Вибрати фото
-                            <input type="file" id="trackingScreenshot" accept="image/*" style="display:none;" onchange="previewTrackingScreenshot(this)">
-                        </label>
-                        <div id="trackingScreenshotPreview" style="display:none;margin-top:8px;"><img id="trackingScreenshotImg" style="max-width:100%;max-height:150px;border-radius:8px;"></div>
-                    </div>
-                    <button type="button" onclick="sendTrackingToClient()" class="btn btn-primary btn-full">📦 Відправити трекінг</button>
-                    <div id="trackingResult" style="margin-top:8px;font-size:12px;text-align:center;"></div>
-                </div>
             </div>
         `;
 
