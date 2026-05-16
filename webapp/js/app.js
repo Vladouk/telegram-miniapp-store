@@ -1136,8 +1136,8 @@ window.addNewProduct = async function () {
     const name = document.getElementById('adminProductName').value.trim();
     const price = parseFloat(document.getElementById('adminProductPrice').value);
     const category = document.getElementById('adminProductCategory').value;
-    const subcategory = document.getElementById('adminProductSubcategory').value;
-    const emoji = document.getElementById('adminProductEmoji').value.trim();
+    const subcategory = document.getElementById('adminProductSubcategory')?.value || '';
+    const emoji = document.getElementById('adminProductEmoji')?.value?.trim() || '';
     const imageUrl = document.getElementById('adminProductImageUrl')?.value.trim() || '';
     // Беремо файли з мультифото масиву
     const imageFiles = _adminPhotoFiles.slice();
