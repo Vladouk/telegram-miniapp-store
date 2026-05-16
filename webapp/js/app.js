@@ -692,6 +692,7 @@ window.showAdminTab = function (tab) {
                         <button onclick="loadAdminOrders('all')" id="filterAll" style="padding:7px 14px;border-radius:999px;border:1px solid var(--border);background:var(--secondary);color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Всі</button>
                         <button onclick="loadAdminOrders('unpaid')" id="filterUnpaid" style="padding:7px 14px;border-radius:999px;border:1px solid #e74c3c;background:transparent;color:#e74c3c;font-size:12px;font-weight:600;cursor:pointer;">🔴 Не оплачені</button>
                         <button onclick="loadAdminOrders('paid')" id="filterPaid" style="padding:7px 14px;border-radius:999px;border:1px solid #27ae60;background:transparent;color:#27ae60;font-size:12px;font-weight:600;cursor:pointer;">✅ Оплачені</button>
+                        <button onclick="loadAdminOrders('shipped')" id="filterShipped" style="padding:7px 14px;border-radius:999px;border:1px solid #8e44ad;background:transparent;color:#8e44ad;font-size:12px;font-weight:600;cursor:pointer;">📦 Відправлені</button>
                     </div>
                 </div>
                 <div id="adminOrdersList"></div>
@@ -1307,7 +1308,8 @@ async function loadAdminOrders(filter = 'all') {
 
         // Фільтрація
         if (filter === 'unpaid') orders = orders.filter(o => !o.isPaid);
-        else if (filter === 'paid') orders = orders.filter(o => o.isPaid);
+        else if (filter === 'paid') orders = orders.filter(o => o.isPaid && !o.trackingNumber);
+        else if (filter === 'shipped') orders = orders.filter(o => o.trackingNumber);
 
         if (!orders || orders.length === 0) {
             ordersList.innerHTML = '<p style="text-align:center;padding:20px;color:var(--text-light);">Замовлень не знайдено</p>';
@@ -1327,9 +1329,12 @@ async function loadAdminOrders(filter = 'all') {
             const clientDisplay = clientUsername ? `${clientName} (@${clientUsername})` : clientName;
 
             // Колір рамки і бейджа
-            const borderColor = isPaid ? '#27ae60' : '#e74c3c';
-            const statusBg = isPaid ? 'rgba(39,174,96,0.1)' : 'rgba(231,76,60,0.08)';
-            const paidBadge = isPaid
+            const hasTracking = !!order.trackingNumber;
+            const borderColor = hasTracking ? '#8e44ad' : (isPaid ? '#27ae60' : '#e74c3c');
+            const statusBg = hasTracking ? 'rgba(142,68,173,0.08)' : (isPaid ? 'rgba(39,174,96,0.1)' : 'rgba(231,76,60,0.08)');
+            const paidBadge = hasTracking
+                ? `<span style="padding:4px 12px;background:#8e44ad;color:#fff;border-radius:999px;font-size:11px;font-weight:700;">📦 Відправлено</span>`
+                : isPaid
                 ? '<span style="padding:4px 12px;background:#27ae60;color:#fff;border-radius:999px;font-size:11px;font-weight:700;">✅ Оплачено</span>'
                 : '<span style="padding:4px 12px;background:#e74c3c;color:#fff;border-radius:999px;font-size:11px;font-weight:700;">🔴 Не оплачено</span>';
 
@@ -1383,6 +1388,7 @@ async function loadAdminOrders(filter = 'all') {
                         <span style="font-size:15px;font-weight:700;color:var(--primary-strong);">${(order.totalPrice || 0).toFixed(2)} грн</span>
                     </div>
                     ${deliveryInfo}
+                    ${order.trackingNumber ? `<div style="font-size:12px;margin-top:6px;padding:6px 10px;background:rgba(142,68,173,0.1);border-radius:8px;color:#8e44ad;font-weight:600;">🔢 ТТН: ${order.trackingNumber}</div>` : ''}
                     ${order.customerNotes ? `<div style="font-size:12px;margin-top:4px;color:var(--text-light);">📝 ${order.customerNotes}</div>` : ''}
                     ${order.screenshotUrl ? `
                     <div style="margin-top:10px;">
@@ -1598,97 +1604,73 @@ window.loadAdminClients = async function (sortBy = 'lastOrder') {
 window.showClientDetails = async function (telegramId) {
     try {
         showLoading(true);
-
-        // Ensure telegramId is a string
         const clientId = String(telegramId);
-        console.log('🔍 Loading client details for ID:', clientId);
-
-        const url = CONFIG.API_URL + `/users/${clientId}/orders`;
         const adminHeaders = getAdminHeaders();
 
-        console.log('📡 Fetching from URL:', url);
-        console.log('📋 Headers:', adminHeaders);
+        const [ordersResp, clientsResp] = await Promise.all([
+            axios.get(CONFIG.API_URL + `/users/${clientId}/orders`, { headers: adminHeaders }),
+            axios.get(CONFIG.API_URL + '/users/all', { headers: adminHeaders })
+        ]);
 
-        const response = await axios.get(url, { headers: adminHeaders });
-        const orders = response.data;
-
-        console.log('✅ Orders loaded:', orders);
-
-        // Get client info from the list
-        const clientsListUrl = CONFIG.API_URL + '/users/all';
-        const clientsResponse = await axios.get(clientsListUrl, { headers: adminHeaders });
-        const clients = clientsResponse.data;
+        const orders = ordersResp.data;
+        const clients = clientsResp.data;
         const client = clients.find(c => String(c.telegramId) === clientId);
 
-        console.log('✅ Client found:', client);
-
-        if (!client) {
-            console.warn('⚠️ Client not found in list');
-        }
-
         const username = client?.username ? `@${client.username}` : '';
-        const firstName = client?.first_name || client?.firstName || 'Невідомий';
-
+        const firstName = client?.firstName || client?.first_name || 'Клієнт';
         document.getElementById('clientModalTitle').textContent = `${firstName} ${username}`;
 
         const modalContent = document.getElementById('clientModalContent');
 
+        const statsHtml = `
+            <div style="padding:12px;background:var(--light);border-radius:10px;margin-bottom:14px;">
+                <div style="display:flex;justify-content:space-between;font-size:13px;">
+                    <span>📦 Замовлень: <b>${orders.length}</b></span>
+                    <span>💰 Сума: <b>${orders.reduce((s, o) => s + (o.totalPrice || 0), 0).toFixed(2)} грн</b></span>
+                </div>
+            </div>`;
+
         if (!orders || orders.length === 0) {
-            modalContent.innerHTML = `
-                <div style="margin-bottom: 16px; padding: 12px; background: var(--light); border-radius: 8px;">
-                    <p style="margin: 0;">У клієнта немає замовлень</p>
-                </div>
-                <div style="display: flex; gap: 8px; flex-direction: column;">
-                    <button onclick="openClientChat('${clientId}')" style="width: 100%; padding: 12px; background: #4a90e2; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
-                        💬 Написати клієнту
-                    </button>
-                    <button onclick="deleteClient('${clientId}')" style="width: 100%; padding: 12px; background: #ff6b6b; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
-                        🗑️ Видалити клієнта з бази
-                    </button>
-                </div>
-            `;
+            modalContent.innerHTML = statsHtml + '<p style="text-align:center;color:var(--text-light);">Немає замовлень</p>';
         } else {
-            modalContent.innerHTML = `
-                <div style="margin-bottom: 16px; padding: 12px; background: var(--light); border-radius: 8px;">
-                    <strong>Загальна статистика:</strong><br>
-                    📦 Всього замовлень: ${orders.length}<br>
-                    💰 Загальна сума: ${orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0).toFixed(2)} грн
-                </div>
-                <h4 style="margin-bottom: 12px;">Історія замовлень:</h4>
-                ${orders.map(order => `
-                    <div style="background: var(--light); padding: 12px; border-radius: 8px; margin-bottom: 10px;">
-                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 8px;">
-                            <strong>#${order.orderNumber}</strong>
-                            <span style="padding: 3px 8px; background: var(--primary); color: white; border-radius: 4px; font-size: 10px; margin-left: 8px;">
-                                ${order.status}
-                            </span>
-                        </div>
-                        <div style="font-size: 12px; color: var(--text-light);">
-                            💰 ${(order.totalPrice || 0).toFixed(2)} грн<br>
-                            💳 ${getPaymentMethodName(order.paymentMethod)}<br>
-                            📅 ${new Date(order.createdAt).toLocaleString('uk-UA')}<br>
-                            ${order.deliveryAddress ? `🚚 ${order.deliveryAddress}<br>` : ''}
-                            ${order.pickupLocation ? `📍 ${order.pickupLocation}<br>` : ''}
-                        </div>
+            const ordersHtml = orders.map(order => {
+                const isPaid = order.isPaid;
+                const hasTracking = !!order.trackingNumber;
+                const borderColor = hasTracking ? '#8e44ad' : (isPaid ? '#27ae60' : '#e74c3c');
+                const badge = hasTracking ? '📦 Відправлено' : (isPaid ? '✅ Оплачено' : '🔴 Не оплачено');
+                const badgeBg = hasTracking ? '#8e44ad' : (isPaid ? '#27ae60' : '#e74c3c');
+
+                let itemsHtml = '';
+                try {
+                    const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]');
+                    itemsHtml = items.map(item => `<div style="font-size:12px;padding:2px 0;">${item.name || 'Товар'} x${item.quantity} — ${((item.price||0)*item.quantity).toFixed(2)} грн</div>`).join('');
+                } catch(e) {}
+
+                return `
+                <div style="border-left:3px solid ${borderColor};border-radius:10px;padding:12px;margin-bottom:10px;background:var(--surface);box-shadow:0 1px 4px rgba(0,0,0,0.06);">
+                    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                        <span style="font-weight:700;font-size:13px;">#${order.orderNumber}</span>
+                        <span style="padding:3px 10px;background:${badgeBg};color:#fff;border-radius:999px;font-size:10px;font-weight:700;">${badge}</span>
                     </div>
-                `).join('')}
-                <div style="display: flex; gap: 8px; flex-direction: column; margin-top: 16px;">
-                    <button onclick="openClientChat('${clientId}')" style="width: 100%; padding: 12px; background: #4a90e2; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
-                        💬 Написати клієнту
-                    </button>
-                    <button onclick="deleteClient('${clientId}')" style="width: 100%; padding: 12px; background: #ff6b6b; color: white; border: none; border-radius: 8px; font-size: 14px; cursor: pointer; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; gap: 8px;">
-                        🗑️ Видалити клієнта з бази
-                    </button>
-                </div>
-            `;
+                    <div style="font-size:11px;color:var(--text-light);margin-bottom:6px;">${new Date(order.createdAt).toLocaleString('uk-UA')}</div>
+                    ${itemsHtml}
+                    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:12px;">
+                        <span>💳 ${getPaymentMethodName(order.paymentMethod)}</span>
+                        <span style="font-weight:700;">${(order.totalPrice||0).toFixed(2)} грн</span>
+                    </div>
+                    ${order.deliveryAddress ? `<div style="font-size:11px;margin-top:4px;color:var(--text-light);">🚚 ${order.deliveryAddress}</div>` : ''}
+                    ${order.trackingNumber ? `<div style="font-size:11px;margin-top:4px;padding:4px 8px;background:rgba(142,68,173,0.1);border-radius:6px;color:#8e44ad;font-weight:600;">🔢 ТТН: ${order.trackingNumber}</div>` : ''}
+                </div>`;
+            }).join('');
+
+            modalContent.innerHTML = statsHtml + ordersHtml + `
+                <button onclick="deleteClient('${clientId}')" style="width:100%;margin-top:12px;padding:12px;background:#ff6b6b;color:#fff;border:none;border-radius:999px;font-size:14px;cursor:pointer;font-weight:600;">🗑️ Видалити клієнта</button>`;
         }
 
         document.getElementById('clientDetailsModal').style.display = 'flex';
     } catch (error) {
-        console.error('❌ Error loading client details:', error);
-        console.error('Error response:', error.response?.data);
-        const errorMsg = error.response?.data?.error || error.message || 'Невідома помилка';
-        showToast(`❌ Помилка завантаження: ${errorMsg}`);
+        console.error('Error loading client details:', error);
+        showToast('❌ Помилка завантаження');
     } finally {
         showLoading(false);
     }
@@ -3033,6 +3015,15 @@ window.sendOrderTracking = async function (orderId, telegramId, orderNumber) {
         const text = `📦 <b>Ваше замовлення відправлено!</b>\n\n🔖 Замовлення: #${orderNumber}\n🚚 Служба: ${serviceName}\n🔢 <b>ТТН: ${trackNumber}</b>\n\nВідстежуйте посилку на сайті перевізника.`;
 
         const adminHeaders = getAdminHeaders();
+
+        // Зберігаємо ТТН в БД
+        await fetch(CONFIG.API_URL + '/orders/' + orderId + '/tracking', {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders },
+            body: JSON.stringify({ trackingNumber: trackNumber })
+        });
+
+        // Відправляємо повідомлення клієнту
         const r = await fetch(CONFIG.API_URL + '/messages/send', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...adminHeaders },
@@ -3042,6 +3033,7 @@ window.sendOrderTracking = async function (orderId, telegramId, orderNumber) {
         if (r.ok) {
             if (resultEl) resultEl.innerHTML = '<span style="color:green;">✅ Відправлено!</span>';
             showToast('✅ Трекінг відправлено клієнту!');
+            loadAdminOrders();
         } else throw new Error('Помилка');
     } catch(e) {
         if (resultEl) resultEl.innerHTML = '<span style="color:red;">❌ Помилка</span>';

@@ -1845,6 +1845,7 @@ app.get("/api/orders/admin/all", async (req, res) => {
       isPaid: o.isPaid || false,
       screenshotFilename: o.screenshotFilename || null,
       screenshotUrl: o.screenshotFilename ? `${config.backendUrl}/api/images/${o.screenshotFilename}` : null,
+      trackingNumber: o.trackingNumber || null,
       user: o.user ? {
         firstName: o.user.firstName,
         lastName: o.user.lastName,
@@ -2026,6 +2027,21 @@ app.put("/api/orders/:orderId/confirm", async (req, res) => {
 });
 
 // Позначити замовлення як оплачене (адмін)
+// Зберегти номер відстеження
+app.put("/api/orders/:orderId/tracking", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+    const orderId = parseInt(req.params.orderId, 10);
+    const { trackingNumber } = req.body;
+    if (!trackingNumber) return res.status(400).json({ error: "trackingNumber required" });
+    await prisma.order.update({ where: { id: orderId }, data: { trackingNumber } });
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.put("/api/orders/:orderId/mark-paid", async (req, res) => {
   try {
     const adminId = req.headers.adminid || req.headers.adminId;
