@@ -1,7 +1,7 @@
-// Configuration - На Шару: Товари з Європи
+// Configuration - Товари з Європи: Товари з Європи
 const CONFIG = {
     API_URL: `${window.location.origin}/api`,
-    STORE_NAME: 'На Шару',
+    STORE_NAME: 'Товари з Європи',
     STORE_DESCRIPTION: 'Товари з Європи за найкращими цінами',
     ADMIN_ID: '1342762796,963424858,755125265', // Replace with bot admin Telegram ID or comma-separated admin IDs
     CATEGORIES: [

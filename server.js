@@ -379,7 +379,7 @@ app.get("/uploads/:filename", async (req, res) => {
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "На Шару — Товари з Європи API",
+    message: "Товари з Європи — Товари з Європи API",
     docs: "/api/docs",
   });
 });
@@ -543,7 +543,7 @@ app.post("/api/bot/webhook", async (req, res) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: clientId,
-            text: `💬 <b>Повідомлення від магазину «На Шару»:</b>\n\n${text}`,
+            text: `💬 <b>Повідомлення від магазину «Товари з Європи»:</b>\n\n${text}`,
             parse_mode: 'HTML',
             reply_markup: {
               inline_keyboard: [[
@@ -638,7 +638,7 @@ app.post("/api/bot/webhook", async (req, res) => {
 
       const response = {
         chat_id: chatId,
-        text: "🛍️ Ласкаво просимо до магазину «На Шару»!\nТовари з Європи за найкращими цінами 🇪🇺\n\nНатисни кнопку нижче щоб переглянути товари:",
+        text: "🛍️ Ласкаво просимо до магазину «Товари з Європи»!\nТовари з Європи за найкращими цінами 🇪🇺\n\nНатисни кнопку нижче щоб переглянути товари:",
         reply_markup: {
           inline_keyboard: [
             [
@@ -2355,7 +2355,7 @@ app.post("/api/messages/broadcast", async (req, res) => {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: telegramId,
-            text: `💬 <b>Повідомлення від магазину На Шару:</b>\n\n${message}`,
+            text: `💬 <b>Повідомлення від магазину Товари з Європи:</b>\n\n${message}`,
             parse_mode: 'HTML'
           })
         });
@@ -2566,7 +2566,7 @@ app.post("/api/ai/describe-product", async (req, res) => {
     const { name, category } = req.body;
     if (!name) return res.status(400).json({ error: "Product name is required" });
 
-    const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
+    const prompt = `Ти помічник для інтернет-магазину "Товари з Європи" (товари з палет, Польща).
 Товар: "${name}"${category ? `, категорія: "${category}"` : ''}.
 Дай відповідь ТІЛЬКИ у форматі JSON без пояснень:
 {"description":"короткий опис товару українською (2-3 речення)","priceMin":число,"priceMax":число,"emoji":"одне емодзі"}`;
@@ -2619,7 +2619,7 @@ app.post("/api/ai/describe-from-photo", upload.single('photo'), async (req, res)
     const mimeType = file.mimetype || 'image/jpeg';
     try { fs.unlinkSync(file.path); } catch(e) {}
 
-    const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
+    const prompt = `Ти помічник для інтернет-магазину "Товари з Європи" (товари з палет, Польща).
 Подивись на фото товару${name ? ` (назва: "${name}")` : ''}.
 Дай відповідь ТІЛЬКИ у форматі JSON без пояснень:
 {"name":"назва товару","description":"опис українською (2-3 речення)","priceMin":число,"priceMax":число,"emoji":"одне емодзі","category":"home/kitchen/gadgets/auto/energy/tools/pets/relax/holidays/beauty/work"}`;
