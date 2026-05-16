@@ -147,14 +147,35 @@ window.showProductDetail = async function (productId) {
         const isOutOfStock = product.stockQuantity <= 0;
         const maxQuantity = Math.min(product.stockQuantity || 99, 99);
 
-        const imageHtml = product.imageUrl && product.imageUrl !== `https://via.placeholder.com/200?text=${encodeURIComponent(product.name)}`
-            ? `<img src="${product.imageUrl}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 12px;" onerror="this.parentElement.innerHTML='${product.emoji || '📦'}'; this.parentElement.style.fontSize='80px';">`
-            : `${product.emoji || '📦'}`;
+        // Збираємо всі фото (images масив + imageUrl як fallback)
+        let allImages = [];
+        if (product.images && Array.isArray(product.images) && product.images.length > 0) {
+            allImages = product.images.filter(u => u && !u.includes('placeholder.com'));
+        } else if (product.imageUrl && !product.imageUrl.includes('placeholder.com')) {
+            allImages = [product.imageUrl];
+        }
+
+        let galleryHtml;
+        if (allImages.length > 1) {
+            galleryHtml = `
+                <div class="product-detail-image" style="position:relative;overflow:hidden;">
+                    <div id="productGallery" style="display:flex;overflow-x:auto;scroll-snap-type:x mandatory;width:100%;height:100%;border-radius:12px;gap:0;">
+                        ${allImages.map(url => `<img src="${url}" style="min-width:100%;height:100%;object-fit:cover;scroll-snap-align:start;" onerror="this.style.display='none'">`).join('')}
+                    </div>
+                    <div style="position:absolute;bottom:10px;left:50%;transform:translateX(-50%);display:flex;gap:6px;">
+                        ${allImages.map((_, i) => `<div style="width:8px;height:8px;border-radius:50%;background:${i === 0 ? '#fff' : 'rgba(255,255,255,0.5)'};"></div>`).join('')}
+                    </div>
+                </div>`;
+        } else if (allImages.length === 1) {
+            galleryHtml = `<div class="product-detail-image"><img src="${allImages[0]}" style="width:100%;height:100%;object-fit:cover;border-radius:12px;" onerror="this.parentElement.innerHTML='${product.emoji || '📦'}';this.parentElement.style.fontSize='80px';"></div>`;
+        } else {
+            galleryHtml = `<div class="product-detail-image">${product.emoji || '📦'}</div>`;
+        }
 
         const productDetail = document.getElementById('productDetail');
         productDetail.innerHTML = `
         <button class="product-back" onclick="navigateTo('catalog')" aria-label="Назад">←</button>
-        <div class="product-detail-image">${imageHtml}</div>
+        ${galleryHtml}
         <h2>${product.name}</h2>
         <div class="product-detail-meta">
             <span>${product.category}</span>
