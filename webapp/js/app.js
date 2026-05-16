@@ -1032,7 +1032,7 @@ window.handleSheetBackdropClick = function (e) {
 
 let _sheetSubmitting = false;
 
-window.sheetNextStep = function () {
+window.sheetNextStep = async function () {
     // Валідація поточного кроку
     if (_sheetStep === 0) {
         const name = document.getElementById('adminProductName').value.trim();
@@ -1049,7 +1049,13 @@ window.sheetNextStep = function () {
         // Захист від подвійного натискання
         if (_sheetSubmitting) return;
         _sheetSubmitting = true;
-        addNewProduct().finally(() => { _sheetSubmitting = false; });
+        try {
+            await addNewProduct();
+        } catch(e) {
+            console.error('Submit error:', e);
+        } finally {
+            _sheetSubmitting = false;
+        }
     }
 }
 
@@ -1090,8 +1096,8 @@ window.addNewProduct = async function () {
     const stockQuantity = parseInt(document.getElementById('adminProductStock').value) || 0;
     const description = document.getElementById('adminProductDesc').value.trim();
 
-    if (!name || !price || !category || !description) {
-        showToast('Заповни назву, ціну, категорію та опис!');
+    if (!name || !price || !category) {
+        showToast('Заповни назву, ціну та категорію!');
         return;
     }
 
