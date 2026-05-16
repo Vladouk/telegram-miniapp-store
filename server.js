@@ -1070,7 +1070,7 @@ app.get("/api/products", async (req, res) => {
 
 app.post("/api/products", async (req, res) => {
   try {
-    const { name, price, category, brand, emoji, description, nicotine_free, flavor_profile, in_stock, stock_quantity, image_url } = req.body;
+    const { name, price, category, brand, emoji, description, nicotine_free, flavor_profile, in_stock, stock_quantity, image_url, images } = req.body;
 
     console.log('Creating product:', { name, price, category, brand, emoji, image_url });
 
@@ -1089,7 +1089,8 @@ app.post("/api/products", async (req, res) => {
       inStock: in_stock !== false,
       stockQuantity: stock_quantity || 100,
       rating: 0,
-      imageUrl: image_url || `https://via.placeholder.com/200?text=${encodeURIComponent(name)}`
+      imageUrl: image_url || `https://via.placeholder.com/200?text=${encodeURIComponent(name)}`,
+      images: Array.isArray(images) && images.length > 0 ? images : null
     };
 
     // Додаємо brand та emoji тільки якщо вони підтримуються схемою

@@ -1012,34 +1012,50 @@ window.toggleBrandField = function () {
 }
 
 // Обробка вибору фото (камера або галерея)
-window.handleAdminPhotoSelect = function (input) {
-    const file = input.files[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = function (e) {
-        const preview = document.getElementById('adminPhotoPreview');
-        const previewImg = document.getElementById('adminPhotoPreviewImg');
-        if (preview && previewImg) {
-            previewImg.src = e.target.result;
-            preview.style.display = 'block';
-        }
-        const urlInput = document.getElementById('adminProductImageUrl');
-        if (urlInput) urlInput.value = '';
-    };
-    reader.readAsDataURL(file);
+// Масив файлів для мультифото
+let _adminPhotoFiles = [];
+
+window.handleAdminMultiPhoto = function (input) {
+    const files = Array.from(input.files);
+    if (!files.length) return;
+
+    // Максимум 5 фото
+    const remaining = 5 - _adminPhotoFiles.length;
+    const toAdd = files.slice(0, remaining);
+    if (toAdd.length === 0) { showToast('Максимум 5 фото!'); return; }
+
+    _adminPhotoFiles.push(...toAdd);
+    renderAdminPhotoPreviews();
+    input.value = ''; // Скидаємо input щоб можна було додати ще
+}
+
+window.removeAdminPhotoAt = function (index) {
+    _adminPhotoFiles.splice(index, 1);
+    renderAdminPhotoPreviews();
+}
+
+function renderAdminPhotoPreviews() {
+    const container = document.getElementById('adminPhotosPreview');
+    if (!container) return;
+
+    if (_adminPhotoFiles.length === 0) {
+        container.innerHTML = '';
+        return;
+    }
+
+    container.innerHTML = _adminPhotoFiles.map((file, i) => {
+        const url = URL.createObjectURL(file);
+        return `<div style="position:relative;width:70px;height:70px;border-radius:10px;overflow:hidden;border:${i === 0 ? '2px solid var(--primary)' : '1px solid var(--border)'};">
+            <img src="${url}" style="width:100%;height:100%;object-fit:cover;">
+            <button onclick="removeAdminPhotoAt(${i})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+            ${i === 0 ? '<div style="position:absolute;bottom:0;left:0;right:0;background:var(--primary);color:#000;font-size:9px;text-align:center;font-weight:700;padding:1px;">Обкладинка</div>' : ''}
+        </div>`;
+    }).join('');
 }
 
 window.removeAdminPhoto = function () {
-    const preview = document.getElementById('adminPhotoPreview');
-    const previewImg = document.getElementById('adminPhotoPreviewImg');
-    if (preview) preview.style.display = 'none';
-    if (previewImg) previewImg.src = '';
-    const cam = document.getElementById('adminProductImageCamera');
-    const gal = document.getElementById('adminProductImageFile');
-    if (cam) cam.value = '';
-    if (gal) gal.value = '';
-    const url = document.getElementById('adminProductImageUrl');
-    if (url) url.value = '';
+    _adminPhotoFiles = [];
+    renderAdminPhotoPreviews();
 }
 
 // ── Add Product Bottom Sheet ──
@@ -1064,6 +1080,8 @@ window.openAddProductSheet = function () {
     const subGroup = document.getElementById('subcategoryGroup');
     if (subGroup) subGroup.style.display = 'none';
     removeAdminPhoto();
+    _adminPhotoFiles = [];
+    renderAdminPhotoPreviews();
     const sheet = document.getElementById('addProductSheet');
     if (sheet) sheet.classList.add('open');
 }
@@ -1129,11 +1147,9 @@ window.addNewProduct = async function () {
     const category = document.getElementById('adminProductCategory').value;
     const subcategory = document.getElementById('adminProductSubcategory').value;
     const emoji = document.getElementById('adminProductEmoji').value.trim();
-    const imageUrl = document.getElementById('adminProductImageUrl').value.trim();
-    // Беремо файл з камери або галереї (перевіряємо обидва input)
-    const cameraInput = document.getElementById('adminProductImageCamera');
-    const galleryInput = document.getElementById('adminProductImageFile');
-    const imageFile = (cameraInput && cameraInput.files[0]) || (galleryInput && galleryInput.files[0]) || null;
+    const imageUrl = document.getElementById('adminProductImageUrl')?.value.trim() || '';
+    // Беремо файли з мультифото масиву
+    const imageFiles = _adminPhotoFiles.slice();
     const stockQuantity = parseInt(document.getElementById('adminProductStock').value) || 0;
     const description = document.getElementById('adminProductDesc').value.trim();
 
@@ -1150,30 +1166,24 @@ window.addNewProduct = async function () {
     showLoading(true);
 
     try {
-        let finalImageUrl = imageUrl || null;
+        let finalImageUrl = null;
+        let allImageUrls = [];
 
-        // Якщо файл вибран, завантажу на сервер
-        if (imageFile) {
-            console.log('📸 File selected:', imageFile.name, imageFile.size);
-            const formData = new FormData();
-            formData.append('image', imageFile);
-
-            console.log('📤 Uploading to /api/upload...');
-            const uploadResponse = await fetch('/api/upload', {
-                method: 'POST',
-                body: formData
-            });
-
-            console.log('Response status:', uploadResponse.status);
-            if (!uploadResponse.ok) {
-                const errorText = await uploadResponse.text();
-                console.error('Upload failed:', errorText);
-                throw new Error('Помилка завантаження файлу');
+        // Завантажуємо всі фото
+        if (imageFiles.length > 0) {
+            for (const file of imageFiles) {
+                const formData = new FormData();
+                formData.append('image', file);
+                const uploadResponse = await fetch('/api/upload', { method: 'POST', body: formData });
+                if (uploadResponse.ok) {
+                    const uploadData = await uploadResponse.json();
+                    allImageUrls.push(uploadData.url);
+                }
             }
-
-            const uploadData = await uploadResponse.json();
-            console.log('✅ Upload response:', uploadData);
-            finalImageUrl = uploadData.url;
+            finalImageUrl = allImageUrls[0] || null;
+        } else if (imageUrl) {
+            finalImageUrl = imageUrl;
+            allImageUrls = [imageUrl];
         }
 
         const selectedCat = CONFIG.CATEGORIES.find(c => c.id === category);
@@ -1186,6 +1196,7 @@ window.addNewProduct = async function () {
             subcategory,
             emoji: finalEmoji,
             image_url: finalImageUrl,
+            images: allImageUrls,
             stock_quantity: stockQuantity,
             description,
             in_stock: true
@@ -1200,13 +1211,8 @@ window.addNewProduct = async function () {
         document.getElementById('adminProductCategory').value = '';
         document.getElementById('adminProductSubcategory').value = '';
         document.getElementById('adminProductEmoji').value = '';
-        document.getElementById('adminProductImageUrl').value = '';
-        const imgFileEl = document.getElementById('adminProductImageFile');
-        if (imgFileEl) imgFileEl.value = '';
-        const imgCamEl = document.getElementById('adminProductImageCamera');
-        if (imgCamEl) imgCamEl.value = '';
-        const previewEl = document.getElementById('adminPhotoPreview');
-        if (previewEl) previewEl.style.display = 'none';
+        _adminPhotoFiles = [];
+        renderAdminPhotoPreviews();
         document.getElementById('adminProductStock').value = '';
         document.getElementById('adminProductDesc').value = '';
         document.getElementById('subcategoryGroup').style.display = 'none';

@@ -387,22 +387,19 @@
                 <div class="add-product-sheet__step" id="sheetStep1">
                     <div class="add-product-sheet__step-label">Крок 2 з 3 — Фото та деталі</div>
                     <div class="add-product-sheet__field">
-                        <label>Фото товару</label>
-                        <div class="add-product-sheet__preview" id="adminPhotoPreview">
-                            <img id="adminPhotoPreviewImg" src="" alt="">
-                            <button class="add-product-sheet__preview-remove" onclick="removeAdminPhoto()">✕</button>
-                        </div>
+                        <label>Фото товару (можна кілька)</label>
+                        <div id="adminPhotosPreview" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;"></div>
                         <div class="add-product-sheet__photo-btns">
                             <label class="add-product-sheet__photo-btn">
                                 <span class="icon">📷</span>Камера
-                                <input type="file" id="adminProductImageCamera" accept="image/*" capture="environment" style="display:none;" onchange="handleAdminPhotoSelect(this)">
+                                <input type="file" id="adminProductImageCamera" accept="image/*" capture="environment" style="display:none;" onchange="handleAdminMultiPhoto(this)">
                             </label>
                             <label class="add-product-sheet__photo-btn">
                                 <span class="icon">🖼️</span>Галерея
-                                <input type="file" id="adminProductImageFile" accept="image/*" style="display:none;" onchange="handleAdminPhotoSelect(this)">
+                                <input type="file" id="adminProductImageFile" accept="image/*" multiple style="display:none;" onchange="handleAdminMultiPhoto(this)">
                             </label>
                         </div>
-                        <input type="url" id="adminProductImageUrl" placeholder="або вставте URL фото...">
+                        <small style="color:var(--text-light);font-size:12px;">Перше фото — обкладинка. Можна додати до 5 фото.</small>
                     </div>
                     <div class="add-product-sheet__field">
                         <label>Емодзі (необов'язково)</label>
@@ -440,7 +437,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260515-1"></script>
-    <script src="js/app.js?v=20260516-3"></script>
+    <script src="js/app.js?v=20260516-4"></script>
 </body>
 
 </html>

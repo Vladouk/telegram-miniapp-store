@@ -44,6 +44,7 @@ model Product {
   nicotineFree    Boolean @default(false)
   flavorProfile   String?
   imageUrl        String?
+  images          Json?
   inStock         Boolean @default(true)
   stockQuantity   Int     @default(0)
   rating          Float   @default(0)
