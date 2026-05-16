@@ -1588,3 +1588,21 @@ body.dark-mode .stat-meta {
     object-fit: cover;
     border-radius: inherit;
 }
+
+/* FOP payment info - dark mode fix */
+body.dark-mode #fopPaymentInfo {
+    background: #1a2744 !important;
+    border-color: #2d4a7a !important;
+    color: var(--text) !important;
+}
+body.dark-mode #fopPaymentInfo div[onclick] {
+    background: #0f172a !important;
+    border-color: #2d3748 !important;
+    color: var(--text) !important;
+}
+body.dark-mode #fopPaymentInfo div[onclick] b {
+    color: #93c5fd !important;
+}
+body.dark-mode #fopPaymentInfo > div:first-child {
+    color: var(--text) !important;
+}

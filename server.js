@@ -1127,23 +1127,36 @@ app.post("/api/products", async (req, res) => {
       const chunks = [];
       for (let i = 0; i < allUsers.length; i += 30) chunks.push(allUsers.slice(i, i + 30));
 
+      // Якщо є фото — відправляємо sendPhoto, інакше sendMessage
+      const imageUrl = productData.imageUrl && !productData.imageUrl.includes('placeholder.com') ? productData.imageUrl : null;
+
       for (const chunk of chunks) {
-        await Promise.all(chunk.map(u =>
-          fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              chat_id: u.telegramId.toString(),
-              text: msg,
-              parse_mode: 'HTML',
-              reply_markup: {
-                inline_keyboard: [[
-                  { text: '🛍️ Відкрити магазин', web_app: { url: webAppUrl } }
-                ]]
-              }
-            })
-          }).catch(() => {})
-        ));
+        await Promise.all(chunk.map(u => {
+          if (imageUrl) {
+            return fetch(`https://api.telegram.org/bot${config.botToken}/sendPhoto`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: u.telegramId.toString(),
+                photo: imageUrl,
+                caption: msg,
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: [[{ text: '🛍️ Відкрити магазин', web_app: { url: webAppUrl } }]] }
+              })
+            }).catch(() => {});
+          } else {
+            return fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                chat_id: u.telegramId.toString(),
+                text: msg,
+                parse_mode: 'HTML',
+                reply_markup: { inline_keyboard: [[{ text: '🛍️ Відкрити магазин', web_app: { url: webAppUrl } }]] }
+              })
+            }).catch(() => {});
+          }
+        }));
         if (chunks.length > 1) await new Promise(r => setTimeout(r, 1000));
       }
       console.log(`📢 Broadcast sent to ${allUsers.length} users`);
@@ -2237,38 +2250,59 @@ app.delete("/api/orders/:orderId", async (req, res) => {
 // Відправка повідомлення клієнту з WebApp
 app.post("/api/messages/send", async (req, res) => {
   try {
-    const { clientId, message } = req.body;
     const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
 
-    // Перевірка що це адмін
-    if (!isAdminId(adminId)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
+    const telegramId = req.body.telegram_id || req.body.clientId;
+    const text = req.body.text || req.body.message;
+    const parseMode = req.body.parse_mode || 'HTML';
 
-    if (!clientId || !message) {
-      return res.status(400).json({ error: "clientId and message are required" });
-    }
+    if (!telegramId || !text) return res.status(400).json({ error: "telegram_id and text are required" });
 
-    // Відправка повідомлення через Telegram Bot API
     const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        chat_id: clientId,
-        text: `💬 <b>Повідомлення від магазину На Шару:</b>\n\n${message}`,
-        parse_mode: 'HTML'
-      })
+      body: JSON.stringify({ chat_id: String(telegramId), text, parse_mode: parseMode })
     });
 
     if (response.ok) {
-      res.json({ success: true, message: "Message sent successfully" });
+      res.json({ success: true });
     } else {
-      const error = await response.json();
-      console.error('Telegram API error:', error);
-      res.status(500).json({ error: "Failed to send message", details: error });
+      const err = await response.json();
+      res.status(500).json({ error: "Failed to send message", details: err });
     }
   } catch (error) {
-    console.error('Error sending message:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// Відправка фото клієнту (трекінг скріншот)
+app.post("/api/messages/send-photo", upload.single('photo'), async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+
+    const telegramId = req.body.telegram_id;
+    const caption = req.body.caption || '';
+    const file = req.file;
+
+    if (!telegramId || !file) return res.status(400).json({ error: "telegram_id and photo required" });
+
+    const fileBuffer = fs.readFileSync(file.path);
+    try { fs.unlinkSync(file.path); } catch(e) {}
+
+    const photoFormData = new FormData();
+    photoFormData.append('chat_id', String(telegramId));
+    photoFormData.append('photo', new Blob([fileBuffer], { type: file.mimetype }), file.originalname || 'photo.jpg');
+    if (caption) { photoFormData.append('caption', caption); photoFormData.append('parse_mode', 'HTML'); }
+
+    const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendPhoto`, {
+      method: 'POST', body: photoFormData
+    });
+
+    if (response.ok) res.json({ success: true });
+    else { const err = await response.json(); res.status(500).json({ error: err.description || 'Failed' }); }
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });

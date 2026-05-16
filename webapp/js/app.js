@@ -727,60 +727,51 @@ window.showAdminTab = function (tab) {
     } else if (tab === 'messages') {
         adminContent.innerHTML = `
             <div style="margin-top: 20px;">
-                <h3>💬 Надіслати повідомлення клієнту</h3>
-                <form style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>Вибрати клієнта:</label>
-                        <select id="messageClientSelect" onchange="selectClient(this.value)" style="font-size: 16px; padding: 14px;">
-                            <option value="">-- Завантаження клієнтів... --</option>
-                        </select>
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Або введіть ID вручну нижче</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Або Telegram ID клієнта:</label>
-                        <input type="text" id="messageClientId" placeholder="677058436">
-                        <small style="display: block; margin-top: 6px; color: var(--text-light); font-size: 12px;">Знайди ID в замовленні або списку клієнтів</small>
-                    </div>
-                    <div class="form-group">
-                        <label>Текст повідомлення:</label>
-                        <textarea id="messageText" placeholder="Ваше замовлення готове..." required style="min-height: 120px;"></textarea>
-                    </div>
-                    <button type="button" onclick="sendMessageToClient()" class="btn btn-primary btn-full">✉️ Відправити</button>
-                </form>
-
-                <h3>📣 Розсилка всім</h3>
-                <form style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                <h3>📣 Розсилка всім клієнтам</h3>
+                <div style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
                     <div class="form-group">
                         <label>Текст розсилки:</label>
-                        <textarea id="broadcastMessage" placeholder="Оновлення, акції, важливе повідомлення..." required style="min-height: 120px;"></textarea>
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: center; gap: 8px;">
-                        <input type="checkbox" id="broadcastIncludeAdmin">
-                        <label for="broadcastIncludeAdmin" style="margin: 0;">Включити адміна</label>
+                        <textarea id="broadcastMessage" placeholder="Оновлення, акції, важливе повідомлення..." style="min-height: 100px;"></textarea>
                     </div>
                     <button type="button" onclick="sendBroadcastMessage()" class="btn btn-primary btn-full">📣 Відправити всім</button>
                     <div id="broadcastResult" style="margin-top: 8px; font-size: 12px; color: var(--text-light);"></div>
-                </form>
+                </div>
 
-                <h3>📋 Швидкі повідомлення</h3>
-                <div style="display: grid; gap: 10px; margin-top: 16px;">
-                    <button onclick="insertQuickMessage('Ваше замовлення готове до відправки! 📦')" class="btn" style="text-align: left;">
-                        📦 Замовлення готове
-                    </button>
-                    <button onclick="insertQuickMessage('Дякуємо за замовлення! Очікуйте на доставку. 🚚')" class="btn" style="text-align: left;">
-                        🚚 Дякуємо за замовлення
-                    </button>
-                    <button onclick="insertQuickMessage('На жаль, цього товару зараз немає в наявності. Можемо запропонувати альтернативу.')" class="btn" style="text-align: left;">
-                        ❌ Немає в наявності
-                    </button>
-                    <button onclick="insertQuickMessage('Ваш товар очікує на самовивіз за адресою: __________')" class="btn" style="text-align: left;">
-                        📍 Готовий до самовивозу
-                    </button>
+                <h3>📦 Відправити трекінг клієнту</h3>
+                <div style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
+                    <div class="form-group">
+                        <label>Telegram ID клієнта:</label>
+                        <input type="text" id="trackingClientId" placeholder="1234567890">
+                    </div>
+                    <div class="form-group">
+                        <label>Номер замовлення:</label>
+                        <input type="text" id="trackingOrderNumber" placeholder="ORDER-5">
+                    </div>
+                    <div class="form-group">
+                        <label>Номер відстеження (ТТН):</label>
+                        <input type="text" id="trackingNumber" placeholder="20450000000000">
+                    </div>
+                    <div class="form-group">
+                        <label>Служба доставки:</label>
+                        <select id="trackingService">
+                            <option value="nova_poshta">🟡 Нова Пошта</option>
+                            <option value="ukr_poshta">🔵 Укрпошта</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Або прикріпіть скріншот:</label>
+                        <label style="display:flex;align-items:center;gap:8px;padding:10px;background:var(--surface);border:1px dashed var(--border);border-radius:10px;cursor:pointer;">
+                            📎 Вибрати фото
+                            <input type="file" id="trackingScreenshot" accept="image/*" style="display:none;" onchange="previewTrackingScreenshot(this)">
+                        </label>
+                        <div id="trackingScreenshotPreview" style="display:none;margin-top:8px;"><img id="trackingScreenshotImg" style="max-width:100%;max-height:150px;border-radius:8px;"></div>
+                    </div>
+                    <button type="button" onclick="sendTrackingToClient()" class="btn btn-primary btn-full">📦 Відправити трекінг</button>
+                    <div id="trackingResult" style="margin-top:8px;font-size:12px;text-align:center;"></div>
                 </div>
             </div>
         `;
 
-        // Завантаження клієнтів для селекту
         loadClientsForMessages();
 
     } else if (tab === 'promocodes') {
@@ -1894,8 +1885,7 @@ window.toggleDeliveryLocation = function () {
     const deliveryType = document.querySelector('input[name="deliveryType"]:checked')?.value;
 
     // Ховаємо всі групи
-    const groups = ['novaPoshtaGroup', 'ukrPoshtaGroup', 'pickupLocationGroup'];
-    groups.forEach(id => {
+    ['novaPoshtaGroup', 'ukrPoshtaGroup'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.style.display = 'none';
     });
@@ -1908,13 +1898,6 @@ window.toggleDeliveryLocation = function () {
     } else if (deliveryType === 'ukr_poshta') {
         const g = document.getElementById('ukrPoshtaGroup');
         if (g) g.style.display = 'block';
-    } else if (deliveryType === 'pickup') {
-        const g = document.getElementById('pickupLocationGroup');
-        if (g) g.style.display = 'block';
-        const pl = document.getElementById('pickupLocation');
-        if (pl) {
-            pl.value = 'Wroclaw, Район Nadodrze (Для детальної адреси звяжіться з власником)';
-        }
     }
 }
 
@@ -2087,9 +2070,6 @@ window.confirmOrder = async function () {
         if (!index || index.length < 5) { showToast('Введи поштовий індекс (5 цифр)!'); return; }
         if (!city) { showToast('Введи місто та відділення Укрпошти!'); return; }
         deliveryAddress = `Укрпошта: індекс ${index}, ${city}`;
-    } else if (deliveryType === 'pickup') {
-        pickupLocation = document.getElementById('pickupLocation')?.value.trim();
-        if (!pickupLocation) { showToast('Адреса самовивізу не встановлена!'); return; }
     }
 
     if (cart.items.length === 0) {
@@ -2951,6 +2931,73 @@ window.sendBroadcastMessage = async function () {
         }
     } finally {
         showLoading(false);
+    }
+}
+
+// Прев'ю скріншоту трекінгу
+window.previewTrackingScreenshot = function (input) {
+    const file = input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = e => {
+        const preview = document.getElementById('trackingScreenshotPreview');
+        const img = document.getElementById('trackingScreenshotImg');
+        if (preview && img) { img.src = e.target.result; preview.style.display = 'block'; }
+    };
+    reader.readAsDataURL(file);
+}
+
+// Відправка трекінгу клієнту
+window.sendTrackingToClient = async function () {
+    const clientId = document.getElementById('trackingClientId')?.value.trim();
+    const orderNumber = document.getElementById('trackingOrderNumber')?.value.trim();
+    const trackingNumber = document.getElementById('trackingNumber')?.value.trim();
+    const service = document.getElementById('trackingService')?.value;
+    const screenshotInput = document.getElementById('trackingScreenshot');
+    const screenshotFile = screenshotInput?.files[0];
+    const resultEl = document.getElementById('trackingResult');
+
+    if (!clientId) { showToast('Введи Telegram ID клієнта'); return; }
+    if (!trackingNumber && !screenshotFile) { showToast('Введи номер ТТН або прикріпи скріншот'); return; }
+
+    if (resultEl) resultEl.innerHTML = '⏳ Відправляємо...';
+
+    try {
+        const adminHeaders = getAdminHeaders();
+        const serviceNames = { nova_poshta: 'Нова Пошта', ukr_poshta: 'Укрпошта' };
+        const serviceName = serviceNames[service] || service;
+
+        // Якщо є скріншот — відправляємо фото
+        if (screenshotFile) {
+            const formData = new FormData();
+            formData.append('photo', screenshotFile);
+            formData.append('telegram_id', clientId);
+            formData.append('caption', `📦 Ваше замовлення${orderNumber ? ' #' + orderNumber : ''} відправлено!\n🚚 ${serviceName}${trackingNumber ? '\n🔢 ТТН: ' + trackingNumber : ''}`);
+            Object.entries(adminHeaders).forEach(([k, v]) => formData.append(k, v));
+
+            const r = await fetch(CONFIG.API_URL + '/messages/send-photo', { method: 'POST', headers: adminHeaders, body: formData });
+            if (!r.ok) throw new Error('Помилка відправки фото');
+        } else {
+            // Текстове повідомлення з ТТН
+            const text = `📦 <b>Ваше замовлення відправлено!</b>${orderNumber ? '\n\n🔖 Замовлення: #' + orderNumber : ''}\n🚚 Служба: ${serviceName}\n🔢 <b>ТТН: ${trackingNumber}</b>\n\nВідстежуйте посилку на сайті перевізника.`;
+            const r = await fetch(CONFIG.API_URL + '/messages/send', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', ...adminHeaders },
+                body: JSON.stringify({ telegram_id: clientId, text, parse_mode: 'HTML' })
+            });
+            if (!r.ok) throw new Error('Помилка відправки');
+        }
+
+        if (resultEl) resultEl.innerHTML = '<span style="color:green;">✅ Трекінг відправлено клієнту!</span>';
+        showToast('✅ Трекінг відправлено!');
+        // Очищаємо форму
+        if (document.getElementById('trackingNumber')) document.getElementById('trackingNumber').value = '';
+        if (screenshotInput) screenshotInput.value = '';
+        const preview = document.getElementById('trackingScreenshotPreview');
+        if (preview) preview.style.display = 'none';
+    } catch(e) {
+        if (resultEl) resultEl.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
+        showToast('❌ Помилка: ' + e.message);
     }
 }
 
