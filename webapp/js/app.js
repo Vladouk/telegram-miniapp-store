@@ -1142,7 +1142,8 @@ window.addNewProduct = async function () {
             images: allImageUrls.length > 0 ? allImageUrls : undefined,
             stock_quantity: stockQuantity,
             description,
-            in_stock: true
+            in_stock: true,
+            broadcast: document.getElementById('adminBroadcastNewProduct')?.checked !== false
         };
 
         let newProduct;
@@ -1160,17 +1161,16 @@ window.addNewProduct = async function () {
             showToast('✅ Товар додано успішно!');
         }
 
-        // Очистка форми
-        document.getElementById('adminProductName').value = '';
-        document.getElementById('adminProductPrice').value = '';
-        document.getElementById('adminProductCategory').value = '';
-        document.getElementById('adminProductSubcategory').value = '';
-        document.getElementById('adminProductEmoji').value = '';
+        // Очистка форми (null-safe)
+        ['adminProductName','adminProductPrice','adminProductCategory',
+         'adminProductSubcategory','adminProductStock','adminProductDesc'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.value = '';
+        });
         _adminPhotoFiles = [];
         renderAdminPhotoPreviews();
-        document.getElementById('adminProductStock').value = '';
-        document.getElementById('adminProductDesc').value = '';
-        document.getElementById('subcategoryGroup').style.display = 'none';
+        const subGrp = document.getElementById('subcategoryGroup');
+        if (subGrp) subGrp.style.display = 'none';
 
         closeAddProductSheet();
         showAdminTab('products');

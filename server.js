@@ -1070,7 +1070,7 @@ app.get("/api/products", async (req, res) => {
 
 app.post("/api/products", async (req, res) => {
   try {
-    const { name, price, category, brand, emoji, description, nicotine_free, flavor_profile, in_stock, stock_quantity, image_url, images } = req.body;
+    const { name, price, category, brand, emoji, description, nicotine_free, flavor_profile, in_stock, stock_quantity, image_url, images, broadcast } = req.body;
 
     console.log('Creating product:', { name, price, category, brand, emoji, image_url });
 
@@ -1107,7 +1107,8 @@ app.post("/api/products", async (req, res) => {
 
     res.status(201).json(product);
 
-    // Розсилка всім користувачам про новий товар
+    // Розсилка всім користувачам про новий товар (якщо broadcast !== false)
+    if (broadcast === false) return;
     try {
       const allUsers = await prisma.user.findMany({
         where: { isAgeVerified: true },

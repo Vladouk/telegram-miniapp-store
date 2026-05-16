@@ -322,3 +322,21 @@
     background-color: var(--surface) !important;
     min-height: 44px;
 }
+
+/* Fix inputs/selects not working on mobile in bottom sheet */
+.add-product-sheet__body input,
+.add-product-sheet__body select,
+.add-product-sheet__body textarea,
+.add-product-sheet__body button,
+.add-product-sheet__body label {
+    touch-action: auto !important;
+    -webkit-user-select: auto !important;
+    user-select: auto !important;
+    pointer-events: auto !important;
+}
+.add-product-sheet__body {
+    touch-action: pan-y !important;
+}
+.add-product-sheet__step {
+    touch-action: auto !important;
+}
