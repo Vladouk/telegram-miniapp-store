@@ -1392,8 +1392,18 @@ async function loadAdminOrders(filter = 'all') {
                     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;">
                         ${!isConfirmed && orderId ? `<button onclick="confirmAdminOrder(${orderId})" style="padding:8px 14px;background:#27ae60;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">✅ Підтвердити</button>` : ''}
                         ${!isPaid && orderId ? `<button onclick="markOrderPaid(${orderId})" style="padding:8px 14px;background:#2980b9;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">💳 Оплачено</button>` : ''}
-                        ${orderId ? `<button onclick="setDeliveryFee(${orderId})" style="padding:8px 14px;background:#f39c12;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">🚚 Доставка</button>` : ''}
+                        ${isPaid && orderId ? `<button onclick="showSendTrackingForm(${orderId},'${telegramId}','${order.orderNumber}')" style="padding:8px 14px;background:#8e44ad;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">📦 Відправити</button>` : ''}
                         ${orderId ? `<button onclick="deleteOrder(${orderId})" style="padding:8px 14px;background:#e74c3c;color:#fff;border:none;border-radius:999px;cursor:pointer;font-size:12px;font-weight:600;">🗑️</button>` : ''}
+                    </div>
+                    <div id="trackingForm_${orderId}" style="display:none;margin-top:10px;padding:12px;background:var(--light);border-radius:10px;border:1px solid var(--border);">
+                        <div style="font-size:13px;font-weight:600;margin-bottom:8px;">📦 Відправка замовлення</div>
+                        <select id="trackService_${orderId}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:13px;">
+                            <option value="nova_poshta">🟡 Нова Пошта</option>
+                            <option value="ukr_poshta">🔵 Укрпошта</option>
+                        </select>
+                        <input type="text" id="trackNumber_${orderId}" placeholder="Номер ТТН" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;font-size:13px;box-sizing:border-box;">
+                        <button onclick="sendOrderTracking(${orderId},'${telegramId}','${order.orderNumber}')" style="width:100%;padding:10px;background:#8e44ad;color:#fff;border:none;border-radius:999px;font-size:13px;font-weight:600;cursor:pointer;">✅ Відправити клієнту</button>
+                        <div id="trackResult_${orderId}" style="font-size:12px;text-align:center;margin-top:6px;"></div>
                     </div>
                 </div>
             </div>`;
@@ -2998,6 +3008,44 @@ window.sendTrackingToClient = async function () {
     } catch(e) {
         if (resultEl) resultEl.innerHTML = `<span style="color:red;">❌ ${e.message}</span>`;
         showToast('❌ Помилка: ' + e.message);
+    }
+}
+
+// Показати форму відправки трекінгу біля замовлення
+window.showSendTrackingForm = function (orderId, telegramId, orderNumber) {
+    const form = document.getElementById('trackingForm_' + orderId);
+    if (form) form.style.display = form.style.display === 'none' ? 'block' : 'none';
+}
+
+// Відправити трекінг з картки замовлення
+window.sendOrderTracking = async function (orderId, telegramId, orderNumber) {
+    const service = document.getElementById('trackService_' + orderId)?.value;
+    const trackNumber = document.getElementById('trackNumber_' + orderId)?.value.trim();
+    const resultEl = document.getElementById('trackResult_' + orderId);
+
+    if (!trackNumber) { showToast('Введи номер ТТН!'); return; }
+
+    if (resultEl) resultEl.innerHTML = '⏳ Відправляємо...';
+
+    try {
+        const serviceNames = { nova_poshta: 'Нова Пошта', ukr_poshta: 'Укрпошта' };
+        const serviceName = serviceNames[service] || service;
+        const text = `📦 <b>Ваше замовлення відправлено!</b>\n\n🔖 Замовлення: #${orderNumber}\n🚚 Служба: ${serviceName}\n🔢 <b>ТТН: ${trackNumber}</b>\n\nВідстежуйте посилку на сайті перевізника.`;
+
+        const adminHeaders = getAdminHeaders();
+        const r = await fetch(CONFIG.API_URL + '/messages/send', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders },
+            body: JSON.stringify({ telegram_id: telegramId, text, parse_mode: 'HTML' })
+        });
+
+        if (r.ok) {
+            if (resultEl) resultEl.innerHTML = '<span style="color:green;">✅ Відправлено!</span>';
+            showToast('✅ Трекінг відправлено клієнту!');
+        } else throw new Error('Помилка');
+    } catch(e) {
+        if (resultEl) resultEl.innerHTML = '<span style="color:red;">❌ Помилка</span>';
+        showToast('❌ Помилка відправки');
     }
 }
 
