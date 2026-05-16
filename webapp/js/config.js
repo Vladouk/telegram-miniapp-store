@@ -1,8 +1,8 @@
-// Configuration - На Шару: Магазин товарів з палет
+// Configuration - На Шару: Товари з Європи
 const CONFIG = {
     API_URL: `${window.location.origin}/api`,
     STORE_NAME: 'На Шару',
-    STORE_DESCRIPTION: 'Магазин товарів з палет',
+    STORE_DESCRIPTION: 'Товари з Європи за найкращими цінами',
     ADMIN_ID: '1342762796,963424858,755125265', // Replace with bot admin Telegram ID or comma-separated admin IDs
     CATEGORIES: [
         { id: 'home', emoji: '🏠', name: 'Для дому', subcats: ['Меблі та декор', 'Організація простору', 'Аксесуари для інтер\'єру', 'Рішення для зберігання', 'Домашній комфорт', 'Товари для кухні', 'Оснащення квартири', 'Все для затишку'] },

@@ -379,7 +379,7 @@ app.get("/uploads/:filename", async (req, res) => {
 app.get("/", (req, res) => {
   res.json({
     status: "ok",
-    message: "На Шару — Mini App API",
+    message: "На Шару — Товари з Європи API",
     docs: "/api/docs",
   });
 });
@@ -638,7 +638,7 @@ app.post("/api/bot/webhook", async (req, res) => {
 
       const response = {
         chat_id: chatId,
-        text: "🛍️ Ласкаво просимо до магазину «На Шару»!\n\nНатисни кнопку нижче щоб переглянути товари:",
+        text: "🛍️ Ласкаво просимо до магазину «На Шару»!\nТовари з Європи за найкращими цінами 🇪🇺\n\nНатисни кнопку нижче щоб переглянути товари:",
         reply_markup: {
           inline_keyboard: [
             [
