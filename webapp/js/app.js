@@ -473,6 +473,12 @@ window.renderAdminProductsList = function (page) {
             stockInput.style.cssText = 'width:70px;padding:6px;border:1px solid var(--border);border-radius:6px;text-align:center;';
             stockInput.oninput = function() { updateStock(p.id, this.value); };
 
+            const editBtn = document.createElement('button');
+            editBtn.className = 'btn-small';
+            editBtn.style.background = '#4a90e2';
+            editBtn.textContent = '✏️';
+            editBtn.onclick = () => editProductFull(p.id);
+
             const delBtn = document.createElement('button');
             delBtn.className = 'btn-small';
             delBtn.style.background = '#ff6b6b';
@@ -480,6 +486,7 @@ window.renderAdminProductsList = function (page) {
             delBtn.onclick = () => deleteProduct(p.id);
 
             right.appendChild(stockInput);
+            right.appendChild(editBtn);
             right.appendChild(delBtn);
 
             row.appendChild(left);
@@ -1040,6 +1047,7 @@ const SHEET_STEPS = 3;
 window.openAddProductSheet = function () {
     _sheetStep = 0;
     _sheetUpdateUI();
+    window._editingProductId = null;
     // Заповнюємо категорії
     try { populateAdminCategorySelect(); } catch(e) {}
     // Скидаємо форму
@@ -1057,6 +1065,8 @@ window.openAddProductSheet = function () {
     removeAdminPhoto();
     _adminPhotoFiles = [];
     renderAdminPhotoPreviews();
+    const title = document.querySelector('.add-product-sheet__title');
+    if (title) title.textContent = '➕ Новий товар';
     const sheet = document.getElementById('addProductSheet');
     if (sheet) sheet.classList.add('open');
 }
@@ -1164,21 +1174,33 @@ window.addNewProduct = async function () {
         const selectedCat = CONFIG.CATEGORIES.find(c => c.id === category);
         const finalEmoji = emoji || selectedCat?.emoji || '📦';
 
-        const newProduct = await apiCall('POST', '/products', {
+        const productPayload = {
             name,
             price,
             category: selectedCat?.name || category,
             subcategory,
             emoji: finalEmoji,
             image_url: finalImageUrl,
-            images: allImageUrls,
+            images: allImageUrls.length > 0 ? allImageUrls : undefined,
             stock_quantity: stockQuantity,
             description,
             in_stock: true
-        });
+        };
 
-        products.products.push(newProduct);
-        showToast('✅ Товар додано успішно!');
+        let newProduct;
+        if (window._editingProductId) {
+            // Оновлення існуючого товару
+            newProduct = await apiCall('PUT', `/products/${window._editingProductId}`, productPayload);
+            const idx = products.products.findIndex(p => p.id === window._editingProductId);
+            if (idx >= 0) products.products[idx] = newProduct;
+            showToast('✅ Товар оновлено!');
+            window._editingProductId = null;
+        } else {
+            // Створення нового
+            newProduct = await apiCall('POST', '/products', productPayload);
+            products.products.push(newProduct);
+            showToast('✅ Товар додано успішно!');
+        }
 
         // Очистка форми
         document.getElementById('adminProductName').value = '';
@@ -1258,6 +1280,55 @@ window.updateProductImage = async function (productId, imageUrl) {
         console.error('Error updating image:', error);
         showToast(`❌ Помилка: ${error.message}`);
     }
+}
+
+// Редагування товару — відкриває bottom sheet з заповненими полями
+window.editProductFull = function (productId) {
+    const product = products.products.find(p => p.id === productId);
+    if (!product) { showToast('Товар не знайдено'); return; }
+
+    // Відкриваємо sheet
+    _sheetStep = 0;
+    _sheetUpdateUI();
+    _adminPhotoFiles = [];
+    renderAdminPhotoPreviews();
+
+    // Заповнюємо категорії
+    try { populateAdminCategorySelect(); } catch(e) {}
+
+    // Заповнюємо поля
+    setTimeout(() => {
+        const nameEl = document.getElementById('adminProductName');
+        const priceEl = document.getElementById('adminProductPrice');
+        const catEl = document.getElementById('adminProductCategory');
+        const stockEl = document.getElementById('adminProductStock');
+        const descEl = document.getElementById('adminProductDesc');
+
+        if (nameEl) nameEl.value = product.name || '';
+        if (priceEl) priceEl.value = product.price || '';
+        if (stockEl) stockEl.value = product.stockQuantity || 0;
+        if (descEl) descEl.value = product.description || '';
+
+        // Категорія
+        if (catEl) {
+            // Шукаємо id категорії по назві
+            const cat = CONFIG.CATEGORIES.find(c => c.name === product.category || c.id === product.category);
+            if (cat) {
+                catEl.value = cat.id;
+                toggleBrandField();
+            }
+        }
+    }, 100);
+
+    // Зберігаємо ID товару для оновлення замість створення
+    window._editingProductId = productId;
+
+    const sheet = document.getElementById('addProductSheet');
+    if (sheet) sheet.classList.add('open');
+
+    // Змінюємо заголовок
+    const title = document.querySelector('.add-product-sheet__title');
+    if (title) title.textContent = '✏️ Редагувати товар';
 }
 
 window.deleteProduct = async function (productId) {

@@ -1170,6 +1170,34 @@ app.post("/api/products", async (req, res) => {
   }
 });
 
+// Повне оновлення товару
+app.put("/api/products/:id", async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id, 10);
+    const { name, price, category, subcategory, emoji, description, image_url, images, stock_quantity, in_stock } = req.body;
+
+    const updateData = {};
+    if (name) { updateData.name = name; updateData.nameEn = name; updateData.namePl = name; }
+    if (price !== undefined) updateData.price = price;
+    if (category) updateData.category = category;
+    if (description) { updateData.description = description; updateData.descriptionEn = description; updateData.descriptionPl = description; }
+    if (emoji) updateData.emoji = emoji;
+    if (image_url) updateData.imageUrl = image_url;
+    if (images && Array.isArray(images) && images.length > 0) updateData.images = images;
+    if (stock_quantity !== undefined) { updateData.stockQuantity = stock_quantity; updateData.inStock = stock_quantity > 0; }
+
+    const product = await prisma.product.update({
+      where: { id: productId },
+      data: updateData
+    });
+
+    res.json(product);
+  } catch (error) {
+    console.error('Product update error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 app.delete("/api/products/:id", async (req, res) => {
   try {
     const productId = parseInt(req.params.id, 10);
