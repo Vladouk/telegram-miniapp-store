@@ -1034,6 +1034,14 @@ window.removeAdminPhotoAt = function (index) {
     renderAdminPhotoPreviews();
 }
 
+window.setAdminPhotoCover = function (index) {
+    if (index === 0 || index >= _adminPhotoFiles.length) return;
+    const [file] = _adminPhotoFiles.splice(index, 1);
+    _adminPhotoFiles.unshift(file);
+    renderAdminPhotoPreviews();
+    showToast('✅ Обкладинку змінено');
+}
+
 function renderAdminPhotoPreviews() {
     const container = document.getElementById('adminPhotosPreview');
     if (!container) return;
@@ -1045,9 +1053,9 @@ function renderAdminPhotoPreviews() {
 
     container.innerHTML = _adminPhotoFiles.map((file, i) => {
         const url = URL.createObjectURL(file);
-        return `<div style="position:relative;width:70px;height:70px;border-radius:10px;overflow:hidden;border:${i === 0 ? '2px solid var(--primary)' : '1px solid var(--border)'};">
+        return `<div onclick="setAdminPhotoCover(${i})" style="position:relative;width:70px;height:70px;border-radius:10px;overflow:hidden;border:${i === 0 ? '2px solid var(--primary)' : '1px solid var(--border)'};cursor:pointer;" title="${i === 0 ? 'Обкладинка' : 'Натисни щоб зробити обкладинкою'}">
             <img src="${url}" style="width:100%;height:100%;object-fit:cover;">
-            <button onclick="removeAdminPhotoAt(${i})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
+            <button onclick="event.stopPropagation();removeAdminPhotoAt(${i})" style="position:absolute;top:2px;right:2px;width:20px;height:20px;border-radius:50%;background:rgba(0,0,0,0.6);color:#fff;border:none;font-size:12px;cursor:pointer;display:flex;align-items:center;justify-content:center;">✕</button>
             ${i === 0 ? '<div style="position:absolute;bottom:0;left:0;right:0;background:var(--primary);color:#000;font-size:9px;text-align:center;font-weight:700;padding:1px;">Обкладинка</div>' : ''}
         </div>`;
     }).join('');
