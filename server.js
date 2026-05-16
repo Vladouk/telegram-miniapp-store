@@ -33,6 +33,7 @@ const config = {
   databaseUrl: process.env.DATABASE_URL,
   openaiApiKey: process.env.OPENAI_API_KEY || null,
   geminiApiKey: process.env.GEMINI_API_KEY || null,
+  groqApiKey: process.env.GROQ_API_KEY || null,
 };
 
 const prisma = new PrismaClient();
@@ -2438,102 +2439,101 @@ app.get("/api/images/:filename", async (req, res) => {
   }
 });
 
-// AI: генерація опису з фото через Gemini Vision
+// AI: генерація опису товару через Groq (текст по назві)
+app.post("/api/ai/describe-product", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+    if (!config.groqApiKey) return res.status(503).json({ error: "GROQ_API_KEY not configured in Railway Variables" });
+
+    const { name, category } = req.body;
+    if (!name) return res.status(400).json({ error: "Product name is required" });
+
+    const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
+Товар: "${name}"${category ? `, категорія: "${category}"` : ''}.
+Дай відповідь ТІЛЬКИ у форматі JSON без пояснень:
+{"description":"короткий опис товару українською (2-3 речення)","priceMin":число,"priceMax":число,"emoji":"одне емодзі"}`;
+
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.groqApiKey}` },
+      body: JSON.stringify({
+        model: "llama-3.1-8b-instant",
+        messages: [{ role: "user", content: prompt }],
+        max_tokens: 300,
+        temperature: 0.7,
+        response_format: { type: "json_object" }
+      })
+    });
+
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || `Groq error ${response.status}`);
+    }
+
+    const data = await response.json();
+    const result = JSON.parse(data.choices?.[0]?.message?.content || '{}');
+    res.json({
+      description: result.description || '',
+      priceMin: result.priceMin || null,
+      priceMax: result.priceMax || null,
+      emoji: result.emoji || '📦',
+      suggestedPrice: result.priceMin ? Math.round((result.priceMin + (result.priceMax || result.priceMin)) / 2) : null
+    });
+  } catch (error) {
+    console.error('AI describe error:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// AI: генерація опису з фото через Groq Vision (Llama 4 Scout)
 app.post("/api/ai/describe-from-photo", upload.single('photo'), async (req, res) => {
   try {
     const adminId = req.headers.adminid || req.headers.adminId;
-    if (!isAdminId(adminId)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-
-    const apiKey = config.geminiApiKey || config.openaiApiKey;
-    if (!apiKey) {
-      return res.status(503).json({ error: "AI API key not configured. Add GEMINI_API_KEY to Railway Variables." });
-    }
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+    if (!config.groqApiKey) return res.status(503).json({ error: "GROQ_API_KEY not configured in Railway Variables" });
 
     const file = req.file;
-    if (!file) {
-      return res.status(400).json({ error: "No photo uploaded" });
-    }
+    if (!file) return res.status(400).json({ error: "No photo uploaded" });
 
     const { name } = req.body;
     const imageBuffer = fs.readFileSync(file.path);
     const base64Image = imageBuffer.toString('base64');
     const mimeType = file.mimetype || 'image/jpeg';
-
-    // Видаляємо тимчасовий файл
     try { fs.unlinkSync(file.path); } catch(e) {}
 
     const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
 Подивись на фото товару${name ? ` (назва: "${name}")` : ''}.
+Дай відповідь ТІЛЬКИ у форматі JSON без пояснень:
+{"name":"назва товару","description":"опис українською (2-3 речення)","priceMin":число,"priceMax":число,"emoji":"одне емодзі","category":"home/kitchen/gadgets/auto/energy/tools/pets/relax/holidays/beauty/work"}`;
 
-Дай відповідь у форматі JSON:
-{
-  "name": "точна назва товару якщо видно на фото, або уточнена назва",
-  "description": "короткий опис товару українською (2-3 речення: що це, для чого, переваги)",
-  "priceMin": число (мінімальна ціна в грн на польському ринку),
-  "priceMax": число (максимальна ціна в грн на польському ринку),
-  "emoji": "одне підходяще емодзі",
-  "category": "одна з категорій: home/kitchen/gadgets/auto/energy/tools/pets/relax/holidays/beauty/work"
-}
+    const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.groqApiKey}` },
+      body: JSON.stringify({
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        messages: [{
+          role: "user",
+          content: [
+            { type: "text", text: prompt },
+            { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } }
+          ]
+        }],
+        max_tokens: 400,
+        temperature: 0.7
+      })
+    });
 
-Тільки JSON, без пояснень.`;
-
-    let result;
-
-    // Gemini Vision API
-    if (config.geminiApiKey) {
-      const geminiResponse = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${config.geminiApiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [
-                { text: prompt },
-                { inline_data: { mime_type: mimeType, data: base64Image } }
-              ]
-            }],
-            generationConfig: { maxOutputTokens: 400, temperature: 0.7 }
-          })
-        }
-      );
-
-      if (!geminiResponse.ok) {
-        const err = await geminiResponse.json();
-        throw new Error(err.error?.message || `Gemini error ${geminiResponse.status}`);
-      }
-
-      const geminiData = await geminiResponse.json();
-      const content = geminiData.candidates?.[0]?.content?.parts?.[0]?.text?.trim();
-      const jsonMatch = content?.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("Invalid Gemini response");
-      result = JSON.parse(jsonMatch[0]);
+    if (!response.ok) {
+      const err = await response.json();
+      throw new Error(err.error?.message || `Groq error ${response.status}`);
     }
-    // Fallback: OpenAI Vision
-    else if (config.openaiApiKey) {
-      const openaiResponse = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${config.openaiApiKey}` },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [{
-            role: "user",
-            content: [
-              { type: "text", text: prompt },
-              { type: "image_url", image_url: { url: `data:${mimeType};base64,${base64Image}` } }
-            ]
-          }],
-          max_tokens: 400
-        })
-      });
-      const openaiData = await openaiResponse.json();
-      const content = openaiData.choices?.[0]?.message?.content?.trim();
-      const jsonMatch = content?.match(/\{[\s\S]*\}/);
-      if (!jsonMatch) throw new Error("Invalid OpenAI response");
-      result = JSON.parse(jsonMatch[0]);
-    }
+
+    const data = await response.json();
+    const content = data.choices?.[0]?.message?.content?.trim();
+    const jsonMatch = content?.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error("Invalid AI response");
+    const result = JSON.parse(jsonMatch[0]);
 
     res.json({
       name: result.name || name || '',
@@ -2546,76 +2546,6 @@ app.post("/api/ai/describe-from-photo", upload.single('photo'), async (req, res)
     });
   } catch (error) {
     console.error('AI photo describe error:', error);
-    res.status(500).json({ error: error.message });
-  }
-});
-
-// AI: генерація опису товару і пошук ціни
-app.post("/api/ai/describe-product", async (req, res) => {
-  try {
-    const adminId = req.headers.adminid || req.headers.adminId;
-    if (!isAdminId(adminId)) {
-      return res.status(403).json({ error: "Not authorized" });
-    }
-
-    if (!config.openaiApiKey) {
-      return res.status(503).json({ error: "OpenAI API key not configured" });
-    }
-
-    const { name, category } = req.body;
-    if (!name) {
-      return res.status(400).json({ error: "Product name is required" });
-    }
-
-    const prompt = `Ти помічник для інтернет-магазину "На Шару" (товари з палет, Польща).
-Товар: "${name}"${category ? `, категорія: "${category}"` : ''}.
-
-Дай відповідь у форматі JSON:
-{
-  "description": "короткий опис товару українською (2-3 речення, що це, для чого, переваги)",
-  "priceMin": число (мінімальна ціна в грн на польському ринку),
-  "priceMax": число (максимальна ціна в грн на польському ринку),
-  "emoji": "одне підходяще емодзі"
-}
-
-Тільки JSON, без пояснень.`;
-
-    const response = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "Authorization": `Bearer ${config.openaiApiKey}`
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [{ role: "user", content: prompt }],
-        max_tokens: 300,
-        temperature: 0.7
-      })
-    });
-
-    if (!response.ok) {
-      const err = await response.json();
-      throw new Error(err.error?.message || `OpenAI error ${response.status}`);
-    }
-
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content?.trim();
-
-    // Парсимо JSON з відповіді
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("Invalid AI response format");
-
-    const result = JSON.parse(jsonMatch[0]);
-    res.json({
-      description: result.description || '',
-      priceMin: result.priceMin || null,
-      priceMax: result.priceMax || null,
-      emoji: result.emoji || '📦',
-      suggestedPrice: result.priceMin ? Math.round((result.priceMin + result.priceMax) / 2) : null
-    });
-  } catch (error) {
-    console.error('AI describe error:', error);
     res.status(500).json({ error: error.message });
   }
 });
