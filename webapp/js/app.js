@@ -1054,11 +1054,10 @@ window.openAddProductSheet = function () {
     _sheetStep = 0;
     _sheetUpdateUI();
     window._editingProductId = null;
-    // Заповнюємо категорії
-    try { populateAdminCategorySelect(); } catch(e) {}
+    _sheetSubmitting = false;
     // Скидаємо форму
-    ['adminProductName','adminProductPrice','adminProductEmoji',
-     'adminProductImageUrl','adminProductStock','adminProductDesc'].forEach(id => {
+    ['adminProductName','adminProductPrice',
+     'adminProductStock','adminProductDesc'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.value = '';
     });
@@ -1075,6 +1074,8 @@ window.openAddProductSheet = function () {
     if (title) title.textContent = '➕ Новий товар';
     const sheet = document.getElementById('addProductSheet');
     if (sheet) sheet.classList.add('open');
+    // Заповнюємо категорії після відкриття
+    setTimeout(() => { try { populateAdminCategorySelect(); } catch(e) {} }, 50);
 }
 
 window.closeAddProductSheet = function () {
@@ -1087,6 +1088,8 @@ window.handleSheetBackdropClick = function (e) {
         closeAddProductSheet();
     }
 }
+
+let _sheetSubmitting = false;
 
 window.sheetNextStep = function () {
     // Валідація поточного кроку
@@ -1102,8 +1105,10 @@ window.sheetNextStep = function () {
         _sheetStep++;
         _sheetUpdateUI();
     } else {
-        // Останній крок — зберігаємо
-        addNewProduct();
+        // Захист від подвійного натискання
+        if (_sheetSubmitting) return;
+        _sheetSubmitting = true;
+        addNewProduct().finally(() => { _sheetSubmitting = false; });
     }
 }
 

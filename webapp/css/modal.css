@@ -313,3 +313,12 @@
 .add-product-sheet__nav .btn-next:active {
     transform: scale(0.98);
 }
+
+/* Fix select in bottom sheet for mobile */
+.add-product-sheet__field select {
+    appearance: auto !important;
+    -webkit-appearance: listbox !important;
+    -moz-appearance: auto !important;
+    background-color: var(--surface) !important;
+    min-height: 44px;
+}

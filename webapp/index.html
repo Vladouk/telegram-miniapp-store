@@ -363,21 +363,21 @@
                     <div class="add-product-sheet__step-label">Крок 1 з 3 — Основна інформація</div>
                     <div class="add-product-sheet__field">
                         <label>Назва товару</label>
-                        <input type="text" id="adminProductName" placeholder="Наприклад: Кавоварка Philips">
+                        <input type="text" id="adminProductName" placeholder="Наприклад: Кавоварка Philips" autocomplete="off">
                     </div>
                     <div class="add-product-sheet__field">
-                        <label>Ціна (грн):</label>
-                        <input type="number" id="adminProductPrice" placeholder="500" min="1" step="0.01">
+                        <label>Ціна (грн)</label>
+                        <input type="text" inputmode="decimal" id="adminProductPrice" placeholder="500" autocomplete="off">
                     </div>
                     <div class="add-product-sheet__field">
                         <label>Категорія</label>
-                        <select id="adminProductCategory" onchange="toggleBrandField()">
+                        <select id="adminProductCategory" onchange="toggleBrandField()" style="appearance:auto;-webkit-appearance:listbox;">
                             <option value="">-- Вибери категорію --</option>
                         </select>
                     </div>
                     <div class="add-product-sheet__field" id="subcategoryGroup" style="display:none;">
                         <label>Підкатегорія</label>
-                        <select id="adminProductSubcategory">
+                        <select id="adminProductSubcategory" style="appearance:auto;-webkit-appearance:listbox;">
                             <option value="">-- Вибери підкатегорію --</option>
                         </select>
                     </div>
@@ -433,7 +433,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260516-2"></script>
-    <script src="js/app.js?v=20260516-7"></script>
+    <script src="js/app.js?v=20260516-8"></script>
 </body>
 
 </html>
