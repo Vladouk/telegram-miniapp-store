@@ -259,7 +259,13 @@ function renderCategoryMenu() {
         const container = document.getElementById('categoryMenu');
         if (!container || !Array.isArray(CONFIG.CATEGORIES)) return;
 
-        container.innerHTML = CONFIG.CATEGORIES.map(cat => {
+        container.innerHTML = `
+            <div class="menu-item-large" onclick="selectCategory('all')" style="background:linear-gradient(135deg,var(--primary),var(--primary-strong));">
+                <div class="menu-icon-large">🛒</div>
+                <h3>Всі товари</h3>
+                <p>Переглянути все</p>
+            </div>
+        ` + CONFIG.CATEGORIES.map(cat => {
             const subtitle = Array.isArray(cat.subcats) && cat.subcats.length ? cat.subcats[0] : '';
             return `
                 <div class="menu-item-large" onclick="selectCategory('${cat.id}')">
@@ -1809,6 +1815,16 @@ window.selectCategory = function (categoryId) {
     const categoryMenu = document.getElementById('categoryMenu');
     const productsView = document.getElementById('productsView');
 
+    categoryMenu.style.display = 'none';
+    productsView.classList.remove('products-view-hidden');
+
+    // "Всі товари" — показуємо все
+    if (categoryId === 'all') {
+        products.filteredProducts = products.sortByAvailability([...products.products]);
+        products.renderProducts();
+        return;
+    }
+
     // Знаходимо категорію в CONFIG
     const category = CONFIG.CATEGORIES.find(c => c.id === categoryId);
     if (!category) {
@@ -1816,15 +1832,11 @@ window.selectCategory = function (categoryId) {
         return;
     }
 
-    categoryMenu.style.display = 'none';
-    productsView.classList.remove('products-view-hidden');
-
-    // Фільтруємо товари по категорії
+    // Фільтруємо товари по категорії (порівнюємо і name і id)
     const filtered = products.products.filter(p => 
         p.category === category.name || p.category === categoryId
     );
-    const finalList = filtered.length ? filtered : products.products;
-    products.filteredProducts = products.sortByAvailability(finalList);
+    products.filteredProducts = products.sortByAvailability(filtered);
     products.renderProducts();
 }
 
