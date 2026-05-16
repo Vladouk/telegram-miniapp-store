@@ -153,29 +153,40 @@
                     </div>
                     <div class="checkout-form">
                         <div class="form-group">
-                            <label>📦 Спосіб отримання:</label>
+                            <label>📦 Спосіб доставки:</label>
                             <div class="delivery-options">
                                 <label class="delivery-option">
-                                    <input type="radio" id="delivery_type_delivery" name="deliveryType" value="delivery"
-                                        onchange="toggleDeliveryLocation()">
-                                    <span>🚚 Доставка</span>
+                                    <input type="radio" id="delivery_type_nova" name="deliveryType" value="nova_poshta" onchange="toggleDeliveryLocation()">
+                                    <span>🟡 Нова Пошта</span>
                                 </label>
                                 <label class="delivery-option">
-                                    <input type="radio" id="delivery_type_pickup" name="deliveryType" value="pickup"
-                                        onchange="toggleDeliveryLocation()">
-                                    <span>📍 Самовивіз</span>
+                                    <input type="radio" id="delivery_type_ukr" name="deliveryType" value="ukr_poshta" onchange="toggleDeliveryLocation()">
+                                    <span>🔵 Укрпошта</span>
+                                </label>
+                                <label class="delivery-option">
+                                    <input type="radio" id="delivery_type_pickup" name="deliveryType" value="pickup" onchange="toggleDeliveryLocation()">
+                                    <span>📍 Самовивіз (Польща)</span>
                                 </label>
                             </div>
                         </div>
 
-                        <div class="form-group" id="deliveryAddressGroup" style="display: none;">
-                            <label>📍 Адреса доставки:</label>
-                            <input type="text" id="deliveryAddress" placeholder="Введи адресу або надішли локацію">
-                            <button class="btn-small" onclick="requestLocation()"
-                                style="margin-top: 8px; width: 100%;">📍 Надіслати геолокацію</button>
-                            <div id="deliveryEstimate" class="delivery-estimate" style="display: none;"></div>
+                        <!-- Нова Пошта -->
+                        <div class="form-group" id="novaPoshtaGroup" style="display:none;">
+                            <label>🏙️ Місто та відділення Нової Пошти:</label>
+                            <input type="text" id="novaPoshtaCity" placeholder="Наприклад: Київ, відділення №5">
+                            <small style="color:var(--text-light);font-size:12px;margin-top:4px;display:block;">💰 Оплата за доставку при отриманні (накладений платіж)</small>
                         </div>
 
+                        <!-- Укрпошта -->
+                        <div class="form-group" id="ukrPoshtaGroup" style="display:none;">
+                            <label>📮 Поштовий індекс:</label>
+                            <input type="text" id="ukrPoshtaIndex" placeholder="Наприклад: 01001" maxlength="5" inputmode="numeric">
+                            <label style="margin-top:10px;">🏙️ Місто та відділення Укрпошти:</label>
+                            <input type="text" id="ukrPoshtaCity" placeholder="Наприклад: Київ, відділення №1">
+                            <small style="color:var(--text-light);font-size:12px;margin-top:4px;display:block;">💰 Оплата за доставку при отриманні</small>
+                        </div>
+
+                        <!-- Самовивіз -->
                         <div class="form-group" id="pickupLocationGroup" style="display: none;">
                             <label>📍 Локація самовивізу:</label>
                             <textarea id="pickupLocation" placeholder="" readonly></textarea>
@@ -441,7 +452,7 @@
     <script src="js/config.js?v=20260515-1"></script>
     <script src="js/cart.js?v=20260515-1"></script>
     <script src="js/products.js?v=20260515-1"></script>
-    <script src="js/app.js?v=20260515-19"></script>
+    <script src="js/app.js?v=20260515-20"></script>
 </body>
 
 </html>

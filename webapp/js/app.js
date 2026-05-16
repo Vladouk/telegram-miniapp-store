@@ -1892,30 +1892,29 @@ window.initTelegramUser = async function () {
 // Управління доставкою/самовивізом
 window.toggleDeliveryLocation = function () {
     const deliveryType = document.querySelector('input[name="deliveryType"]:checked')?.value;
-    const deliveryAddressGroup = document.getElementById('deliveryAddressGroup');
-    const pickupLocationGroup = document.getElementById('pickupLocationGroup');
-    const deliveryAddressInput = document.getElementById('deliveryAddress');
-    const pickupLocationInput = document.getElementById('pickupLocation');
 
-    if (deliveryType === 'delivery') {
-        localStorage.setItem('vaper_delivery_type', 'delivery');
-        deliveryAddressGroup.style.display = 'block';
-        pickupLocationGroup.style.display = 'none';
-        if (deliveryAddressInput) deliveryAddressInput.removeAttribute('readonly');
-        if (pickupLocationInput) pickupLocationInput.value = '';
-        scheduleDeliveryEstimate(deliveryAddressInput?.value.trim() || '');
+    // Ховаємо всі групи
+    const groups = ['novaPoshtaGroup', 'ukrPoshtaGroup', 'pickupLocationGroup'];
+    groups.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = 'none';
+    });
+
+    localStorage.setItem('vaper_delivery_type', deliveryType || '');
+
+    if (deliveryType === 'nova_poshta') {
+        const g = document.getElementById('novaPoshtaGroup');
+        if (g) g.style.display = 'block';
+    } else if (deliveryType === 'ukr_poshta') {
+        const g = document.getElementById('ukrPoshtaGroup');
+        if (g) g.style.display = 'block';
     } else if (deliveryType === 'pickup') {
-        localStorage.setItem('vaper_delivery_type', 'pickup');
-        deliveryAddressGroup.style.display = 'none';
-        pickupLocationGroup.style.display = 'block';
-        if (deliveryAddressInput) deliveryAddressInput.value = '';
-        if (pickupLocationInput) {
-            pickupLocationInput.setAttribute('readonly', 'true');
-            // Автоматично встановлюємо фіксовану адресу самовивізу
-            pickupLocationInput.value = 'Wroclaw, Район Nadodrze (Для детальної адреси звяжіться з власником)';
-            showToast('✅ Адреса самовивізу встановлена!');
+        const g = document.getElementById('pickupLocationGroup');
+        if (g) g.style.display = 'block';
+        const pl = document.getElementById('pickupLocation');
+        if (pl) {
+            pl.value = 'Wroclaw, Район Nadodrze (Для детальної адреси звяжіться з власником)';
         }
-        clearDeliveryEstimate();
     }
 }
 
@@ -2066,48 +2065,36 @@ function scheduleDeliveryEstimate(address) {
 // Функції для управління замовленнями
 window.confirmOrder = async function () {
     const deliveryType = document.querySelector('input[name="deliveryType"]:checked')?.value;
-    const deliveryAddress = document.getElementById('deliveryAddress')?.value.trim();
-    const pickupLocation = document.getElementById('pickupLocation')?.value.trim();
-    const customerNotes = document.getElementById('customerNotes').value.trim();
-    const paymentMethod = document.querySelector('input[name="payment"]:checked')?.value;
-
-    console.log('📋 Checkout form data:', { deliveryType, deliveryAddress, pickupLocation, paymentMethod, cartItems: cart.items.length });
+    const customerNotes = document.getElementById('customerNotes')?.value.trim() || '';
+    const paymentMethod = document.querySelector('input[name="payment"]:checked')?.value || 'card';
 
     if (!deliveryType) {
-        showToast('Вибери спосіб отримання!');
+        showToast('Вибери спосіб доставки!');
         return;
     }
 
-    if (deliveryType === 'delivery' && !deliveryAddress) {
-        showToast('Введи адресу доставки!');
-        return;
-    }
+    // Збираємо адресу залежно від типу доставки
+    let deliveryAddress = null;
+    let pickupLocation = null;
 
-    if (deliveryType === 'pickup' && !pickupLocation) {
-        showToast('Надішли локацію самовивізу!');
-        return;
-    }
-
-    if (!paymentMethod) {
-        showToast('Вибери спосіб оплати!');
-        return;
+    if (deliveryType === 'nova_poshta') {
+        const city = document.getElementById('novaPoshtaCity')?.value.trim();
+        if (!city) { showToast('Введи місто та відділення Нової Пошти!'); return; }
+        deliveryAddress = `Нова Пошта: ${city}`;
+    } else if (deliveryType === 'ukr_poshta') {
+        const index = document.getElementById('ukrPoshtaIndex')?.value.trim();
+        const city = document.getElementById('ukrPoshtaCity')?.value.trim();
+        if (!index || index.length < 5) { showToast('Введи поштовий індекс (5 цифр)!'); return; }
+        if (!city) { showToast('Введи місто та відділення Укрпошти!'); return; }
+        deliveryAddress = `Укрпошта: індекс ${index}, ${city}`;
+    } else if (deliveryType === 'pickup') {
+        pickupLocation = document.getElementById('pickupLocation')?.value.trim();
+        if (!pickupLocation) { showToast('Адреса самовивізу не встановлена!'); return; }
     }
 
     if (cart.items.length === 0) {
         showToast('Твій кошик порожній!');
         return;
-    }
-
-    // Перевірка вартості доставки - критично важливо!
-    if (deliveryType === 'delivery') {
-        const deliveryEstimateRaw = parseFloat(localStorage.getItem('vaper_delivery_fee_estimate') || 0);
-        const lastDeliveryAddress = localStorage.getItem('vaper_delivery_address');
-        
-        // Якщо адреса введена, але ціна не розрахована
-        if (deliveryAddress !== lastDeliveryAddress || !Number.isFinite(deliveryEstimateRaw) || deliveryEstimateRaw <= 0) {
-            showToast('⏳ Чекай, поки розрахується вартість доставки... Або обнови адресу.');
-            return;
-        }
     }
 
     showLoading(true);
@@ -2121,38 +2108,30 @@ window.confirmOrder = async function () {
         const discount = parseFloat(localStorage.getItem('vaper_discount') || 0);
         const promocode = localStorage.getItem('vaper_promocode');
         const deliveryEstimateRaw = parseFloat(localStorage.getItem('vaper_delivery_fee_estimate') || 0);
-        const deliveryEstimate = deliveryType === 'delivery' && Number.isFinite(deliveryEstimateRaw) && deliveryEstimateRaw > 0
-            ? deliveryEstimateRaw
-            : 0;
+        const deliveryEstimate = 0; // Доставка оплачується при отриманні
 
         // Fallback до прямого читання з Telegram WebApp якщо localStorage порожній
         let telegram_id = currentUser.telegramId || currentUser.telegram_id || telegramUser.id;
 
         if (!telegram_id && window.Telegram?.WebApp?.initDataUnsafe?.user?.id) {
             telegram_id = window.Telegram.WebApp.initDataUnsafe.user.id;
-            console.log('⚠️ Telegram ID not in localStorage, using direct WebApp access:', telegram_id);
-
-            // Оновлюємо localStorage для наступних разів
             const webAppUser = window.Telegram.WebApp.initDataUnsafe.user;
             localStorage.setItem('telegramUser', JSON.stringify(webAppUser));
         }
-
-        console.log('📱 Using telegram_id:', telegram_id);
 
         if (!telegram_id) {
             showToast('❌ Не вдалося отримати Telegram ID. Спробуй перезапустити бот.');
             return;
         }
 
-        // Також оновлюємо telegramUser якщо був fallback
         const finalTelegramUser = (telegramUser.id ? telegramUser : (window.Telegram?.WebApp?.initDataUnsafe?.user || {}));
 
         const orderData = {
             telegram_id: telegram_id,
             init_data: window.Telegram?.WebApp?.initData || '',
             user_data: {
-                first_name: finalTelegramUser.first_name || currentUser.firstName || currentUser.first_name || 'Клієнт',
-                last_name: finalTelegramUser.last_name || currentUser.lastName || currentUser.last_name || '',
+                first_name: finalTelegramUser.first_name || currentUser.firstName || 'Клієнт',
+                last_name: finalTelegramUser.last_name || currentUser.lastName || '',
                 username: finalTelegramUser.username || currentUser.username || ''
             },
             items: cart.items.map(item => ({
@@ -2162,15 +2141,13 @@ window.confirmOrder = async function () {
             })),
             payment_method: paymentMethod,
             delivery_type: deliveryType,
-            delivery_address: deliveryType === 'delivery' ? deliveryAddress : null,
-            pickup_location: deliveryType === 'pickup' ? pickupLocation : null,
+            delivery_address: deliveryAddress,
+            pickup_location: pickupLocation,
             customer_notes: customerNotes || null,
             promocode: promocode || null,
             delivery_estimate: deliveryEstimate,
-            total_price: cart.getTotal() - discount + deliveryEstimate
+            total_price: cart.getTotal() - discount
         };
-
-        console.log('📤 Sending order to backend:', orderData);
 
         // Запит до backend використовуємо fetch замість apiCall для більшого контролю
         const orderResponse = await fetch(CONFIG.API_URL + '/orders', {
@@ -2297,9 +2274,11 @@ window.deleteOrder = async function (orderId) {
 function showOrderConfirmation(order, orderData) {
     const confirmationDetails = document.getElementById('confirmationDetails');
 
-    const deliveryInfo = orderData?.delivery_type === 'delivery'
-        ? `🚚 Доставка на адресу: ${orderData?.delivery_address}`
-        : `📍 Самовивіз з: ${orderData?.pickup_location}`;
+    const deliveryInfo = order.deliveryAddress
+        ? `📦 Доставка: ${order.deliveryAddress}`
+        : order.pickupLocation
+        ? `📍 Самовивіз: ${order.pickupLocation}`
+        : '';
 
     const priceDisplay = `${order.totalPrice.toFixed(2)} грн`;
 

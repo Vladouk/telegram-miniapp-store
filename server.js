@@ -1105,6 +1105,51 @@ app.post("/api/products", async (req, res) => {
     });
 
     res.status(201).json(product);
+
+    // Розсилка всім користувачам про новий товар
+    try {
+      const allUsers = await prisma.user.findMany({
+        where: { isAgeVerified: true },
+        select: { telegramId: true }
+      });
+
+      const webAppUrl = `${config.backendUrl}/webapp/index.html`;
+      const priceText = `${productData.price} грн`;
+      const categoryText = productData.category || '';
+      const emojiText = productData.emoji || '📦';
+      const msg = `${emojiText} <b>Новий товар в магазині!</b>\n\n` +
+        `<b>${productData.name}</b>\n` +
+        `📂 Категорія: ${categoryText}\n` +
+        `💰 Ціна: ${priceText}\n\n` +
+        `Заходь і замовляй 👇`;
+
+      // Відправляємо по 30 на секунду щоб не перевищити ліміт Telegram
+      const chunks = [];
+      for (let i = 0; i < allUsers.length; i += 30) chunks.push(allUsers.slice(i, i + 30));
+
+      for (const chunk of chunks) {
+        await Promise.all(chunk.map(u =>
+          fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              chat_id: u.telegramId.toString(),
+              text: msg,
+              parse_mode: 'HTML',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '🛍️ Відкрити магазин', web_app: { url: webAppUrl } }
+                ]]
+              }
+            })
+          }).catch(() => {})
+        ));
+        if (chunks.length > 1) await new Promise(r => setTimeout(r, 1000));
+      }
+      console.log(`📢 Broadcast sent to ${allUsers.length} users`);
+    } catch (broadcastErr) {
+      console.error('Broadcast error:', broadcastErr);
+    }
   } catch (error) {
     console.error('Product creation error:', error);
     res.status(500).json({ error: error.message, details: error.stack });
@@ -1381,21 +1426,18 @@ app.post("/api/orders", async (req, res) => {
     const productById = new Map();
     if (items && items.length > 0) {
       for (const item of items) {
-        const product = await prisma.product.findUnique({
-          where: { id: item.product_id }
-        });
-
+        const pid = item.product_id || item.productId || item.id;
+        if (!pid) continue;
+        const product = await prisma.product.findUnique({ where: { id: pid } });
         if (!product) {
-          return res.status(404).json({ error: `Товар з ID ${item.product_id} не знайдено` });
+          return res.status(404).json({ error: `Товар з ID ${pid} не знайдено` });
         }
-
         if (product.stockQuantity < item.quantity) {
           return res.status(400).json({
             error: `${product.name}: недостатньо на складі. Доступно: ${product.stockQuantity}, замовлено: ${item.quantity}`
           });
         }
-
-        productById.set(item.product_id, product);
+        productById.set(pid, product);
       }
     }
 
@@ -1419,15 +1461,20 @@ app.post("/api/orders", async (req, res) => {
     // Вирахування товарів зі складу
     if (items && items.length > 0) {
       for (const item of items) {
-        await prisma.product.update({
-          where: { id: item.product_id },
-          data: {
-            stockQuantity: {
-              decrement: item.quantity
-            }
-          }
-        });
-        console.log(`📝 Stock reduced for product ${item.product_id} by ${item.quantity}`);
+        const pid = item.product_id || item.productId || item.id;
+        if (!pid) {
+          console.warn('⚠️ Skipping stock update - no product_id in item:', item);
+          continue;
+        }
+        try {
+          await prisma.product.update({
+            where: { id: pid },
+            data: { stockQuantity: { decrement: item.quantity } }
+          });
+          console.log(`📝 Stock reduced for product ${pid} by ${item.quantity}`);
+        } catch(e) {
+          console.error(`❌ Failed to update stock for product ${pid}:`, e.message);
+        }
       }
     }
 
@@ -1599,7 +1646,8 @@ app.post("/api/orders", async (req, res) => {
 
       // Format delivery type
       const deliveryTypeMap = {
-        'delivery': '🚚 Доставка',
+        'nova_poshta': '🟡 Нова Пошта',
+        'ukr_poshta': '🔵 Укрпошта',
         'pickup': '📍 Самовивіз'
       };
       const deliveryTypeText = deliveryTypeMap[delivery_type] || delivery_type || 'Не вказано';
@@ -1976,6 +2024,25 @@ app.put("/api/orders/:orderId/mark-paid", async (req, res) => {
       where: { id: orderId },
       data: { isPaid: true }
     });
+
+    // Видаляємо товари з нульовим стоком що були в цьому замовленні
+    try {
+      const items = Array.isArray(order.items) ? order.items : JSON.parse(order.items || '[]');
+      for (const item of items) {
+        const pid = item.product_id || item.productId;
+        if (!pid) continue;
+        const product = await prisma.product.findUnique({ where: { id: pid } });
+        if (product && product.stockQuantity <= 0) {
+          // Видаляємо OrderProduct записи спочатку
+          await prisma.orderProduct.deleteMany({ where: { productId: pid } });
+          await prisma.product.delete({ where: { id: pid } });
+          console.log(`🗑️ Product ${pid} (${product.name}) deleted - stock = 0`);
+        }
+      }
+    } catch(e) {
+      console.error('Error deleting zero-stock products:', e);
+    }
+
     // Повідомити клієнта
     try {
       await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
