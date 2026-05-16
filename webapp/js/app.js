@@ -553,10 +553,10 @@ window.showAdminTab = function (tab) {
                     <div class="stat-card">
                         <div class="stat-label">Склад</div>
                         <div class="stat-value" id="statProductsStockTotal">—</div>
-                        <div class="stat-meta">Загальний залишок</div>
+                        <div class="stat-meta">Загальний залишок шт.</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Залишок по брендах</div>
+                        <div class="stat-label">По категоріях</div>
                         <div class="stat-value" id="statStockBreakdownTotal">—</div>
                         <div class="stat-meta" id="statStockBreakdown">—</div>
                     </div>
@@ -570,19 +570,24 @@ window.showAdminTab = function (tab) {
                         <div class="stat-meta">Всього</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Підтверджено</div>
-                        <div class="stat-value" id="statOrdersConfirmed">—</div>
-                        <div class="stat-meta">Статус confirmed</div>
+                        <div class="stat-label">Оплачено</div>
+                        <div class="stat-value" id="statOrdersPaid">—</div>
+                        <div class="stat-meta">Підтверджена оплата</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Очікує</div>
-                        <div class="stat-value" id="statOrdersPending">—</div>
-                        <div class="stat-meta">Не підтверджені</div>
+                        <div class="stat-label">Не оплачено</div>
+                        <div class="stat-value" id="statOrdersUnpaid">—</div>
+                        <div class="stat-meta">Очікують оплати</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-label">Відправлено</div>
+                        <div class="stat-value" id="statOrdersShipped">—</div>
+                        <div class="stat-meta">З ТТН</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Виторг</div>
                         <div class="stat-value" id="statOrdersRevenue">—</div>
-                        <div class="stat-meta">Сума</div>
+                        <div class="stat-meta">Оплачені замовлення</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">Середній чек</div>
@@ -592,37 +597,22 @@ window.showAdminTab = function (tab) {
                     <div class="stat-card">
                         <div class="stat-label">За 24 год</div>
                         <div class="stat-value" id="statOrdersLast24">—</div>
-                        <div class="stat-meta">Нові</div>
+                        <div class="stat-meta">Нові замовлення</div>
                     </div>
                     <div class="stat-card">
                         <div class="stat-label">За 7 днів</div>
                         <div class="stat-value" id="statOrdersLast7">—</div>
-                        <div class="stat-meta">Нові</div>
+                        <div class="stat-meta">Нові замовлення</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Доставка</div>
-                        <div class="stat-value" id="statOrdersDelivery">—</div>
-                        <div class="stat-meta">Тип отримання</div>
+                        <div class="stat-label">Нова Пошта</div>
+                        <div class="stat-value" id="statOrdersNova">—</div>
+                        <div class="stat-meta">Замовлень</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Самовивіз</div>
-                        <div class="stat-value" id="statOrdersPickup">—</div>
-                        <div class="stat-meta">Тип отримання</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Оплата готівка</div>
-                        <div class="stat-value" id="statOrdersCash">—</div>
-                        <div class="stat-meta">Метод</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Оплата карта</div>
-                        <div class="stat-value" id="statOrdersCard">—</div>
-                        <div class="stat-meta">Метод</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Оплата USDT</div>
-                        <div class="stat-value" id="statOrdersUsdt">—</div>
-                        <div class="stat-meta">Метод</div>
+                        <div class="stat-label">Укрпошта</div>
+                        <div class="stat-value" id="statOrdersUkr">—</div>
+                        <div class="stat-meta">Замовлень</div>
                     </div>
                 </div>
 
@@ -634,16 +624,6 @@ window.showAdminTab = function (tab) {
                         <div class="stat-meta">Всього</div>
                     </div>
                     <div class="stat-card">
-                        <div class="stat-label">Активні</div>
-                        <div class="stat-value" id="statClientsActive">—</div>
-                        <div class="stat-meta">За 30 днів</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Замовлень</div>
-                        <div class="stat-value" id="statClientsOrders">—</div>
-                        <div class="stat-meta">В сумі</div>
-                    </div>
-                    <div class="stat-card">
                         <div class="stat-label">З замовленнями</div>
                         <div class="stat-value" id="statClientsWithOrders">—</div>
                         <div class="stat-meta">Клієнти</div>
@@ -652,25 +632,6 @@ window.showAdminTab = function (tab) {
                         <div class="stat-label">Середньо</div>
                         <div class="stat-value" id="statClientsAvgOrders">—</div>
                         <div class="stat-meta">Замовлень на клієнта</div>
-                    </div>
-                </div>
-
-                <h3 style="margin: 20px 0 16px;">🎟️ Промокоди</h3>
-                <div class="admin-stats">
-                    <div class="stat-card">
-                        <div class="stat-label">Промокоди</div>
-                        <div class="stat-value" id="statPromosCount">—</div>
-                        <div class="stat-meta">Всього</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Активні</div>
-                        <div class="stat-value" id="statPromosActive">—</div>
-                        <div class="stat-meta">Діють зараз</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-label">Використано</div>
-                        <div class="stat-value" id="statPromosUsed">—</div>
-                        <div class="stat-meta">Разів</div>
                     </div>
                 </div>
             </div>
@@ -860,47 +821,29 @@ function buildStockBreakdown(list) {
 
 function renderAdminOrdersStats(orders) {
     const list = Array.isArray(orders) ? orders : [];
-    const normalizeMethod = (value) => {
-        const raw = (value ?? '').toString().trim().toLowerCase();
-        if (!raw) return '';
-        if (raw.includes('usdt')) return 'usdt';
-        if (raw.includes('card') || raw.includes('karta') || raw.includes('карта')) return 'card';
-        if (raw.includes('cash') || raw.includes('gotiv') || raw.includes('гот')) return 'cash';
-        return raw;
-    };
     const total = list.length;
-    const confirmed = list.filter(o => o.isConfirmed || o.status === 'confirmed').length;
-    const pending = list.filter(o => !(o.isConfirmed || o.status === 'confirmed')).length;
-    const revenue = list.reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
-    const avg = total ? revenue / total : 0;
+    const paid = list.filter(o => o.isPaid).length;
+    const unpaid = list.filter(o => !o.isPaid).length;
+    const shipped = list.filter(o => o.trackingNumber).length;
+    const revenue = list.filter(o => o.isPaid).reduce((sum, o) => sum + (Number(o.totalPrice) || 0), 0);
+    const avg = paid ? revenue / paid : 0;
     const dayAgo = Date.now() - (24 * 60 * 60 * 1000);
     const weekAgo = Date.now() - (7 * 24 * 60 * 60 * 1000);
-    const last24 = list.filter(o => {
-        const createdAt = new Date(o.createdAt).getTime();
-        return Number.isFinite(createdAt) && createdAt >= dayAgo;
-    }).length;
-    const last7 = list.filter(o => {
-        const createdAt = new Date(o.createdAt).getTime();
-        return Number.isFinite(createdAt) && createdAt >= weekAgo;
-    }).length;
-    const delivery = list.filter(o => (o.deliveryType || o.delivery_type) === 'delivery').length;
-    const pickup = list.filter(o => (o.deliveryType || o.delivery_type) === 'pickup').length;
-    const cash = list.filter(o => normalizeMethod(o.paymentMethod ?? o.payment_method) === 'cash').length;
-    const card = list.filter(o => normalizeMethod(o.paymentMethod ?? o.payment_method) === 'card').length;
-    const usdt = list.filter(o => normalizeMethod(o.paymentMethod ?? o.payment_method) === 'usdt').length;
+    const last24 = list.filter(o => new Date(o.createdAt).getTime() >= dayAgo).length;
+    const last7 = list.filter(o => new Date(o.createdAt).getTime() >= weekAgo).length;
+    const nova = list.filter(o => (o.deliveryAddress || '').includes('Нова Пошта')).length;
+    const ukr = list.filter(o => (o.deliveryAddress || '').includes('Укрпошта')).length;
 
     updateStatValue('statOrdersCount', total);
-    updateStatValue('statOrdersConfirmed', confirmed);
-    updateStatValue('statOrdersPending', pending);
+    updateStatValue('statOrdersPaid', paid);
+    updateStatValue('statOrdersUnpaid', unpaid);
+    updateStatValue('statOrdersShipped', shipped);
     updateStatValue('statOrdersRevenue', formatMoney(revenue));
     updateStatValue('statOrdersAvg', formatMoney(avg));
     updateStatValue('statOrdersLast24', last24);
     updateStatValue('statOrdersLast7', last7);
-    updateStatValue('statOrdersDelivery', delivery);
-    updateStatValue('statOrdersPickup', pickup);
-    updateStatValue('statOrdersCash', cash);
-    updateStatValue('statOrdersCard', card);
-    updateStatValue('statOrdersUsdt', usdt);
+    updateStatValue('statOrdersNova', nova);
+    updateStatValue('statOrdersUkr', ukr);
 }
 
 function renderAdminClientsStats(clients) {
@@ -919,8 +862,6 @@ function renderAdminClientsStats(clients) {
     }).length;
 
     updateStatValue('statClientsCount', total);
-    updateStatValue('statClientsOrders', ordersTotal);
-    updateStatValue('statClientsActive', active);
     updateStatValue('statClientsWithOrders', clientsWithOrders);
     updateStatValue('statClientsAvgOrders', avgOrders.toFixed(1));
 }
