@@ -1331,7 +1331,7 @@ body.dark-mode .navbar {
     padding: 16px;
     border-radius: var(--radius);
     box-shadow: var(--shadow-lg);
-    z-index: 1500;
+    z-index: 99999;
     opacity: 0;
     transform: translateY(100px);
     transition: var(--transition);
