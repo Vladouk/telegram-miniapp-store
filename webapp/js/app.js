@@ -195,8 +195,16 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (productsView) productsView.classList.add('products-view-hidden');
     if (brandMenu) brandMenu.classList.add('brand-menu-hidden');
 
-    // Завантаження сторінки за замовчуванням
-    navigateTo('home');
+    // Завантаження сторінки за замовчуванням або відкриття товару з URL
+    const urlParams = new URLSearchParams(window.location.search);
+    const productIdFromUrl = urlParams.get('product');
+    if (productIdFromUrl) {
+        // Відкриваємо конкретний товар
+        navigateTo('home');
+        setTimeout(() => { showProductDetail(parseInt(productIdFromUrl)); }, 300);
+    } else {
+        navigateTo('home');
+    }
 });
 
 function setupEventListeners() {

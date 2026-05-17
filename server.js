@@ -1115,7 +1115,7 @@ app.post("/api/products", async (req, res) => {
         select: { telegramId: true }
       });
 
-      const webAppUrl = `${config.backendUrl}/webapp/index.html`;
+      const webAppUrl = `${config.backendUrl}/webapp/index.html?product=${product.id}`;
       const priceText = `${productData.price} грн`;
       const categoryText = productData.category || '';
       const emojiText = productData.emoji || '📦';
