@@ -143,7 +143,9 @@ model Message {
   senderTelegramId   BigInt
   receiverTelegramId BigInt
   text               String
-  direction          String   // "client_to_admin" or "admin_to_client"
+  direction          String   // "client_to_admin", "admin_to_client", "system"
+  messageType        String   @default("text") // "text", "photo", "order", "payment", "system"
+  metadata           Json?    // extra data (imageUrl, orderId, etc.)
   isRead             Boolean  @default(false)
   createdAt          DateTime @default(now())
 

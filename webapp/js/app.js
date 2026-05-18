@@ -733,14 +733,24 @@ window.showAdminTab = function (tab) {
 
                 <!-- Chat window (hidden by default) -->
                 <div id="crmChatWindow" style="display:none;">
-                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:var(--light);border-radius:10px;">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:8px;padding:10px;background:var(--light);border-radius:10px;">
                         <button onclick="closeCrmChat()" style="background:none;border:none;font-size:18px;cursor:pointer;">←</button>
-                        <div>
+                        <div style="flex:1;">
                             <div id="crmChatClientName" style="font-weight:700;font-size:15px;"></div>
                             <div id="crmChatClientId" style="font-size:12px;color:var(--text-light);"></div>
                         </div>
+                        <button onclick="toggleCrmClientInfo()" style="background:none;border:none;font-size:16px;cursor:pointer;" title="Інфо про клієнта">ℹ️</button>
                     </div>
-                    <div id="crmChatMessages" style="max-height:400px;overflow-y:auto;padding:10px;background:var(--light);border-radius:12px;margin-bottom:12px;"></div>
+
+                    <!-- Client info panel (hidden) -->
+                    <div id="crmClientInfoPanel" style="display:none;background:var(--light);border-radius:12px;padding:14px;margin-bottom:10px;font-size:13px;max-height:300px;overflow-y:auto;">
+                        <div id="crmClientInfoContent">Завантаження...</div>
+                    </div>
+
+                    <!-- Messages -->
+                    <div id="crmChatMessages" style="max-height:350px;overflow-y:auto;padding:10px;background:var(--light);border-radius:12px;margin-bottom:10px;"></div>
+
+                    <!-- Input -->
                     <div style="display:flex;gap:8px;">
                         <input type="text" id="crmChatInput" placeholder="Написати повідомлення..." style="flex:1;padding:12px;border:1px solid var(--border);border-radius:999px;font-size:14px;" onkeypress="if(event.key==='Enter')sendCrmMessage()">
                         <button onclick="sendCrmMessage()" style="padding:12px 18px;background:var(--secondary);color:#fff;border:none;border-radius:999px;font-weight:600;cursor:pointer;">➤</button>
@@ -3002,7 +3012,7 @@ window.loadCrmConversations = async function() {
         const conversations = await response.json();
 
         if (conversations.length === 0) {
-            container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-light);">Немає діалогів. Коли клієнт напише — тут з\'явиться чат.</div>';
+            container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-light);">Немає діалогів. Коли клієнт напише або зробить замовлення — тут з\'явиться чат.</div>';
             return;
         }
 
@@ -3011,7 +3021,7 @@ window.loadCrmConversations = async function() {
                 ? `<span style="background:#e74c3c;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">${conv.unreadCount}</span>`
                 : '';
             const lastMsg = conv.lastMessage
-                ? `<div style="font-size:12px;color:var(--text-light);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${conv.lastMessage.direction === 'admin_to_client' ? 'Ви: ' : ''}${conv.lastMessage.text}</div>`
+                ? `<div style="font-size:12px;color:var(--text-light);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${conv.lastMessage.direction === 'admin_to_client' ? 'Ви: ' : conv.lastMessage.direction === 'system' ? '🔔 ' : ''}${conv.lastMessage.text}</div>`
                 : '';
             const time = conv.lastMessage
                 ? `<div style="font-size:11px;color:var(--text-light);">${new Date(conv.lastMessage.createdAt).toLocaleString('uk-UA', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>`
@@ -3037,6 +3047,74 @@ window.loadCrmConversations = async function() {
     }
 }
 
+// Рендеринг одного повідомлення в чаті
+function renderCrmMessage(msg) {
+    const time = new Date(msg.createdAt).toLocaleTimeString('uk-UA', {hour:'2-digit',minute:'2-digit'});
+
+    // Системне повідомлення (замовлення, оплата)
+    if (msg.direction === 'system') {
+        let icon = '🔔';
+        let bgColor = '#f0f8ff';
+        let borderColor = '#b3d4f5';
+        let actionHtml = '';
+
+        if (msg.messageType === 'order') {
+            icon = '🛒';
+            bgColor = '#f0fff4';
+            borderColor = '#a3e4b8';
+        } else if (msg.messageType === 'payment') {
+            icon = '💳';
+            bgColor = '#fff8e1';
+            borderColor = '#ffe082';
+            // Якщо це скріншот оплати — показуємо кнопку підтвердження
+            if (msg.metadata?.action === 'screenshot' && msg.metadata?.orderNumber) {
+                actionHtml = `<div style="margin-top:8px;"><button onclick="crmMarkPaid('${msg.metadata.orderNumber}')" style="padding:8px 14px;background:#27ae60;color:#fff;border:none;border-radius:8px;font-size:12px;font-weight:600;cursor:pointer;">✅ Підтвердити оплату</button></div>`;
+            }
+            if (msg.metadata?.screenshotUrl) {
+                actionHtml = `<div style="margin-top:6px;"><img src="${msg.metadata.screenshotUrl}" style="max-width:200px;max-height:150px;border-radius:8px;cursor:pointer;" onclick="window.open('${msg.metadata.screenshotUrl}','_blank')"></div>` + actionHtml;
+            }
+        }
+
+        return `
+            <div style="display:flex;justify-content:center;margin-bottom:10px;">
+                <div style="max-width:90%;padding:10px 14px;border-radius:12px;background:${bgColor};border:1px solid ${borderColor};font-size:13px;text-align:center;">
+                    <div>${icon} ${msg.text}</div>
+                    ${actionHtml}
+                    <div style="font-size:10px;color:#999;margin-top:4px;">${time}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Повідомлення від адміна
+    if (msg.direction === 'admin_to_client') {
+        return `
+            <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+                <div style="max-width:80%;padding:10px 14px;border-radius:16px;background:var(--secondary);color:#fff;font-size:14px;line-height:1.4;">
+                    <div>${msg.text}</div>
+                    <div style="font-size:10px;opacity:0.7;margin-top:4px;text-align:right;">${time}</div>
+                </div>
+            </div>
+        `;
+    }
+
+    // Повідомлення від клієнта
+    let photoHtml = '';
+    if (msg.messageType === 'photo' && msg.metadata?.photoUrl) {
+        photoHtml = `<div style="margin-bottom:6px;"><img src="${msg.metadata.photoUrl}" style="max-width:200px;max-height:180px;border-radius:8px;cursor:pointer;" onclick="window.open('${msg.metadata.photoUrl}','_blank')"></div>`;
+    }
+
+    return `
+        <div style="display:flex;justify-content:flex-start;margin-bottom:8px;">
+            <div style="max-width:80%;padding:10px 14px;border-radius:16px;background:var(--bg);border:1px solid var(--border);font-size:14px;line-height:1.4;">
+                ${photoHtml}
+                <div>${msg.text}</div>
+                <div style="font-size:10px;opacity:0.7;margin-top:4px;">${time}</div>
+            </div>
+        </div>
+    `;
+}
+
 window.openCrmChat = async function(clientTelegramId, clientName) {
     currentCrmChatClientId = clientTelegramId;
 
@@ -3045,6 +3123,7 @@ window.openCrmChat = async function(clientTelegramId, clientName) {
     document.getElementById('crmChatWindow').style.display = 'block';
     document.getElementById('crmChatClientName').textContent = clientName || 'Клієнт';
     document.getElementById('crmChatClientId').textContent = `ID: ${clientTelegramId}`;
+    document.getElementById('crmClientInfoPanel').style.display = 'none';
 
     // Завантажуємо історію
     const messagesContainer = document.getElementById('crmChatMessages');
@@ -3062,25 +3141,7 @@ window.openCrmChat = async function(clientTelegramId, clientName) {
         if (messages.length === 0) {
             messagesContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-light);">Немає повідомлень</div>';
         } else {
-            messagesContainer.innerHTML = messages.map(msg => {
-                const isAdmin = msg.direction === 'admin_to_client';
-                const time = new Date(msg.createdAt).toLocaleTimeString('uk-UA', {hour:'2-digit',minute:'2-digit'});
-                const align = isAdmin ? 'flex-end' : 'flex-start';
-                const bg = isAdmin ? 'var(--secondary)' : 'var(--bg)';
-                const color = isAdmin ? '#fff' : 'var(--text)';
-                const border = isAdmin ? 'none' : '1px solid var(--border)';
-
-                return `
-                    <div style="display:flex;justify-content:${align};margin-bottom:8px;">
-                        <div style="max-width:80%;padding:10px 14px;border-radius:16px;background:${bg};color:${color};border:${border};font-size:14px;line-height:1.4;">
-                            <div>${msg.text}</div>
-                            <div style="font-size:10px;opacity:0.7;margin-top:4px;text-align:right;">${time}</div>
-                        </div>
-                    </div>
-                `;
-            }).join('');
-
-            // Скролимо вниз
+            messagesContainer.innerHTML = messages.map(msg => renderCrmMessage(msg)).join('');
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
     } catch(e) {
@@ -3090,6 +3151,129 @@ window.openCrmChat = async function(clientTelegramId, clientName) {
 
     // Фокус на інпут
     setTimeout(() => document.getElementById('crmChatInput')?.focus(), 100);
+}
+
+window.toggleCrmClientInfo = async function() {
+    const panel = document.getElementById('crmClientInfoPanel');
+    if (!panel || !currentCrmChatClientId) return;
+
+    if (panel.style.display !== 'none') {
+        panel.style.display = 'none';
+        return;
+    }
+
+    panel.style.display = 'block';
+    const content = document.getElementById('crmClientInfoContent');
+    content.innerHTML = '<div style="text-align:center;">Завантаження...</div>';
+
+    try {
+        const adminHeaders = getAdminHeaders();
+        const response = await fetch(`${CONFIG.API_URL}/messages/client-info/${currentCrmChatClientId}`, {
+            headers: adminHeaders
+        });
+
+        if (!response.ok) throw new Error('Failed');
+        const data = await response.json();
+
+        let html = '';
+
+        // Інфо про клієнта
+        if (data.client) {
+            const c = data.client;
+            html += `<div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);">`;
+            html += `<div style="font-weight:700;margin-bottom:6px;">👤 Клієнт</div>`;
+            html += `<div>${c.firstName || ''} ${c.lastName || ''}</div>`;
+            if (c.username) html += `<div>@${c.username}</div>`;
+            html += `<div style="color:var(--text-light);">ID: ${c.telegramId}</div>`;
+            html += `<div style="color:var(--text-light);">Зареєстрований: ${new Date(c.createdAt).toLocaleDateString('uk-UA')}</div>`;
+            html += `</div>`;
+        }
+
+        // Статистика
+        if (data.stats) {
+            html += `<div style="margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid var(--border);">`;
+            html += `<div style="font-weight:700;margin-bottom:6px;">📊 Статистика</div>`;
+            html += `<div>Замовлень: ${data.stats.totalOrders}</div>`;
+            html += `<div>Витрачено: ${data.stats.totalSpent.toFixed(2)} грн</div>`;
+            html += `<div>Оплачено: ${data.stats.paidOrders} | Не оплачено: ${data.stats.unpaidOrders}</div>`;
+            html += `</div>`;
+        }
+
+        // Замовлення
+        if (data.orders && data.orders.length > 0) {
+            html += `<div style="font-weight:700;margin-bottom:6px;">📦 Замовлення</div>`;
+            for (const order of data.orders) {
+                const statusMap = { pending: '⏳', confirmed: '✅', shipped: '📦', delivered: '🎉', cancelled: '❌' };
+                const statusIcon = statusMap[order.status] || '📋';
+                const paidBadge = order.isPaid ? '<span style="color:#27ae60;font-weight:600;">💰</span>' : '<span style="color:#e74c3c;">❗</span>';
+
+                html += `<div style="padding:8px;background:var(--bg);border-radius:8px;margin-bottom:6px;border:1px solid var(--border);">`;
+                html += `<div style="display:flex;justify-content:space-between;align-items:center;">`;
+                html += `<span style="font-weight:600;">${statusIcon} #${order.orderNumber}</span>`;
+                html += `<span>${paidBadge} ${order.totalPrice.toFixed(2)} грн</span>`;
+                html += `</div>`;
+                html += `<div style="font-size:11px;color:var(--text-light);margin-top:4px;">${new Date(order.createdAt).toLocaleString('uk-UA', {day:'2-digit',month:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>`;
+
+                // Кнопка підтвердити оплату якщо не оплачено
+                if (!order.isPaid) {
+                    html += `<button onclick="crmMarkPaidById(${order.id})" style="margin-top:6px;padding:6px 12px;background:#27ae60;color:#fff;border:none;border-radius:6px;font-size:11px;font-weight:600;cursor:pointer;">✅ Підтвердити оплату</button>`;
+                }
+                if (order.trackingNumber) {
+                    html += `<div style="font-size:11px;margin-top:4px;">🔢 ТТН: ${order.trackingNumber}</div>`;
+                }
+                html += `</div>`;
+            }
+        }
+
+        content.innerHTML = html || '<div>Немає даних</div>';
+    } catch(e) {
+        console.error('Error loading client info:', e);
+        content.innerHTML = '<div style="color:#e74c3c;">Помилка завантаження</div>';
+    }
+}
+
+window.crmMarkPaid = async function(orderNumber) {
+    if (!confirm(`Підтвердити оплату для #${orderNumber}?`)) return;
+    try {
+        const adminHeaders = getAdminHeaders();
+        // Знаходимо orderId по номеру
+        const ordersResp = await fetch(`${CONFIG.API_URL}/orders/admin/all`, { headers: adminHeaders });
+        const orders = await ordersResp.json();
+        const order = orders.find(o => o.orderNumber === orderNumber);
+        if (!order) { showToast('Замовлення не знайдено'); return; }
+
+        const resp = await fetch(`${CONFIG.API_URL}/messages/mark-paid/${order.id}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...adminHeaders }
+        });
+        if (resp.ok) {
+            showToast('✅ Оплату підтверджено!');
+            // Оновлюємо чат
+            if (currentCrmChatClientId) openCrmChat(currentCrmChatClientId, document.getElementById('crmChatClientName')?.textContent);
+        } else {
+            showToast('❌ Помилка');
+        }
+    } catch(e) { showToast('❌ Помилка: ' + e.message); }
+}
+
+window.crmMarkPaidById = async function(orderId) {
+    if (!confirm('Підтвердити оплату?')) return;
+    try {
+        const adminHeaders = getAdminHeaders();
+        const resp = await fetch(`${CONFIG.API_URL}/messages/mark-paid/${orderId}`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', ...adminHeaders }
+        });
+        if (resp.ok) {
+            showToast('✅ Оплату підтверджено!');
+            if (currentCrmChatClientId) {
+                openCrmChat(currentCrmChatClientId, document.getElementById('crmChatClientName')?.textContent);
+                // Оновлюємо інфо-панель
+                const panel = document.getElementById('crmClientInfoPanel');
+                if (panel && panel.style.display !== 'none') toggleCrmClientInfo();
+            }
+        } else {
+            showToast('❌ Помилка');
+        }
+    } catch(e) { showToast('❌ Помилка: ' + e.message); }
 }
 
 window.closeCrmChat = function() {

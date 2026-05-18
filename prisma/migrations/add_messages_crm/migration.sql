@@ -5,6 +5,8 @@ CREATE TABLE "Message" (
     "receiverTelegramId" BIGINT NOT NULL,
     "text" TEXT NOT NULL,
     "direction" TEXT NOT NULL,
+    "messageType" TEXT NOT NULL DEFAULT 'text',
+    "metadata" JSONB,
     "isRead" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
 

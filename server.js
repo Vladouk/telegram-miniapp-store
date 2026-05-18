@@ -45,6 +45,24 @@ const app = express();
 // { adminId: { action: 'chatting', clientId: '123' } }
 const adminStates = new Map();
 
+// CRM: Хелпер для створення системних повідомлень в чаті
+async function createCrmMessage(clientTelegramId, text, messageType = 'system', metadata = null) {
+  try {
+    await prisma.message.create({
+      data: {
+        senderTelegramId: BigInt(0), // system
+        receiverTelegramId: BigInt(clientTelegramId),
+        text: text,
+        direction: 'system',
+        messageType: messageType,
+        metadata: metadata || undefined
+      }
+    });
+  } catch(e) {
+    console.error('Failed to create CRM message:', e);
+  }
+}
+
 // Налаштування папки для завантажень
 const uploadsDir = path.join(__dirname, 'uploads');
 if (!fs.existsSync(uploadsDir)) {
@@ -652,6 +670,109 @@ app.post("/api/bot/webhook", async (req, res) => {
     const chatId = message.chat.id;
     const text = message.text;
     console.log(`💬 Message from ${chatId}: ${text}`);
+
+    // CRM: Обробка фото від клієнта
+    if (message.photo && !isAdminId(chatId.toString())) {
+      try {
+        // Отримуємо найбільше фото
+        const photo = message.photo[message.photo.length - 1];
+        const fileResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/getFile`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ file_id: photo.file_id })
+        });
+        const fileData = await fileResponse.json();
+        const filePath = fileData.result?.file_path;
+        let photoUrl = null;
+
+        if (filePath) {
+          // Завантажуємо фото і зберігаємо в БД
+          const photoResponse = await fetch(`https://api.telegram.org/file/bot${config.botToken}/${filePath}`);
+          const photoBuffer = Buffer.from(await photoResponse.arrayBuffer());
+          const ext = path.extname(filePath) || '.jpg';
+          const filename = `client-photo-${chatId}-${Date.now()}${ext}`;
+
+          await prisma.image.upsert({
+            where: { filename },
+            update: { data: photoBuffer, mimeType: 'image/jpeg' },
+            create: { filename, mimeType: 'image/jpeg', data: photoBuffer }
+          });
+
+          photoUrl = `${config.backendUrl}/api/images/${filename}`;
+        }
+
+        const caption = message.caption || '';
+        const msgUser = message.from;
+        const userName = msgUser.username ? `@${msgUser.username}` : (msgUser.first_name || 'Клієнт');
+
+        // Зберігаємо в CRM
+        await prisma.message.create({
+          data: {
+            senderTelegramId: BigInt(chatId),
+            receiverTelegramId: BigInt(config.adminIds[0] || 0),
+            text: caption || '📷 Фото',
+            direction: 'client_to_admin',
+            messageType: 'photo',
+            metadata: { photoUrl, fileId: photo.file_id }
+          }
+        });
+
+        // Перевіряємо чи адмін в чаті з цим клієнтом
+        let adminInChat = null;
+        for (const [adminId, state] of adminStates.entries()) {
+          if (state.action === 'chatting' && state.clientId === chatId.toString()) {
+            adminInChat = adminId;
+            break;
+          }
+        }
+
+        if (adminInChat) {
+          // Пересилаємо фото адміну який в чаті
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendPhoto`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: adminInChat,
+              photo: photo.file_id,
+              caption: `👤 <b>${userName}:</b>${caption ? '\n' + caption : ''}`,
+              parse_mode: 'HTML'
+            })
+          });
+        } else {
+          // Пересилаємо всім адмінам
+          for (const adminId of config.adminIds) {
+            await fetch(`https://api.telegram.org/bot${config.botToken}/sendPhoto`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: adminId,
+                photo: photo.file_id,
+                caption: `📷 <b>Фото від клієнта</b>\n👤 ${userName} (ID: <code>${chatId}</code>)${caption ? '\n📝 ' + caption : ''}`,
+                parse_mode: 'HTML',
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: '💬 Відповісти', callback_data: `msg_${chatId}` }
+                  ]]
+                }
+              })
+            }).catch(() => {});
+          }
+
+          // Підтверджуємо клієнту
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: '✅ Фото отримано! Адміністратор відповість найближчим часом.'
+            })
+          });
+        }
+      } catch(e) {
+        console.error('Error handling client photo:', e);
+      }
+      return res.sendStatus(200);
+    }
 
     // CRM: Перевірка чи адмін в режимі чату з клієнтом
     if (adminStates.has(chatId.toString())) {
@@ -1926,6 +2047,22 @@ app.post("/api/orders", async (req, res) => {
       baseTotal: itemsTotal
     });
 
+    // CRM: Системне повідомлення про нове замовлення
+    try {
+      const itemNames = [];
+      for (const item of (items || [])) {
+        const pid = item.product_id || item.productId || item.id;
+        const product = pid ? await prisma.product.findUnique({ where: { id: pid } }) : null;
+        itemNames.push(`${product?.name || 'Товар'} x${item.quantity}`);
+      }
+      const deliveryTypeMap = { 'nova_poshta': 'Нова Пошта', 'ukr_poshta': 'Укрпошта', 'pickup': 'Самовивіз' };
+      await createCrmMessage(telegram_id,
+        `🛒 Нове замовлення #${orderNumber}\n📦 ${itemNames.join(', ')}\n💰 ${finalTotal.toFixed(2)} грн\n📍 ${deliveryTypeMap[delivery_type] || delivery_type || 'Не вказано'}${delivery_address ? '\n🗺️ ' + delivery_address : ''}`,
+        'order',
+        { orderId: order.id, orderNumber, totalPrice: finalTotal, items: itemNames, deliveryType: delivery_type, paymentMethod: payment_method }
+      );
+    } catch(e) { console.error('CRM order message error:', e); }
+
     // Convert BigInt to string for JSON serialization
     const orderResponse = {
       id: order.id,
@@ -2132,6 +2269,15 @@ app.post("/api/orders/payment-screenshot", upload.single('photo'), async (req, r
       })
     }).catch(e => {});
 
+    // CRM: Системне повідомлення про скріншот оплати
+    try {
+      await createCrmMessage(telegram_id,
+        `📸 Клієнт надіслав скріншот оплати${order_number ? ' для #' + order_number : ''}`,
+        'payment',
+        { action: 'screenshot', orderNumber: order_number || null, screenshotUrl: screenshotUrl }
+      );
+    } catch(e) {}
+
     res.json({ success: true });
   } catch (error) {
     console.error('Payment screenshot error:', error);
@@ -2288,6 +2434,15 @@ app.put("/api/orders/:orderId/confirm", async (req, res) => {
     });
 
     console.log(`✅ Order ${orderId} confirmed by admin`);
+
+    // CRM: Системне повідомлення про підтвердження замовлення
+    try {
+      await createCrmMessage(order.telegramId.toString(),
+        `✅ Замовлення #${order.orderNumber} підтверджено адміном`,
+        'system',
+        { orderId: order.id, orderNumber: order.orderNumber, action: 'confirmed' }
+      );
+    } catch(e) {}
 
     // Send confirmation message to client
     try {
@@ -2450,6 +2605,16 @@ app.put("/api/orders/:orderId/mark-paid", async (req, res) => {
         })
       });
     } catch(e) {}
+
+    // CRM: Системне повідомлення про підтвердження оплати
+    try {
+      await createCrmMessage(order.telegramId.toString(),
+        `✅ Оплату підтверджено для замовлення #${order.orderNumber}`,
+        'payment',
+        { orderId: order.id, orderNumber: order.orderNumber, action: 'paid' }
+      );
+    } catch(e) {}
+
     res.json({ success: true, isPaid: true });
   } catch (error) {
     res.status(500).json({ error: error.message });
@@ -2685,19 +2850,38 @@ app.get("/api/messages/conversations", async (req, res) => {
     const adminId = req.headers.adminid || req.headers.adminId;
     if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
 
-    // Отримуємо унікальних клієнтів з повідомленнями
-    const clientMessages = await prisma.message.findMany({
-      where: { direction: 'client_to_admin' },
-      orderBy: { createdAt: 'desc' },
-      distinct: ['senderTelegramId']
+    // Отримуємо всіх унікальних клієнтів (з повідомленнями або системними)
+    const allMessages = await prisma.message.findMany({
+      where: {
+        OR: [
+          { direction: 'client_to_admin' },
+          { direction: 'system' },
+          { direction: 'admin_to_client' }
+        ]
+      },
+      orderBy: { createdAt: 'desc' }
     });
 
+    // Збираємо унікальних клієнтів
+    const clientIds = new Set();
+    for (const msg of allMessages) {
+      if (msg.direction === 'client_to_admin') {
+        clientIds.add(msg.senderTelegramId.toString());
+      } else if (msg.direction === 'admin_to_client' || msg.direction === 'system') {
+        const rid = msg.receiverTelegramId.toString();
+        if (rid !== '0') clientIds.add(rid);
+      }
+    }
+
     const conversations = [];
-    for (const msg of clientMessages) {
-      const clientTgId = msg.senderTelegramId;
+    for (const clientTgIdStr of clientIds) {
+      const clientTgId = BigInt(clientTgIdStr);
+
+      // Пропускаємо адмінів
+      if (isAdminId(clientTgIdStr)) continue;
 
       // Інфо про клієнта
-      let clientInfo = { telegramId: clientTgId.toString(), firstName: null, username: null };
+      let clientInfo = { telegramId: clientTgIdStr, firstName: null, username: null };
       try {
         const clientUser = await prisma.user.findUnique({ where: { telegramId: clientTgId } });
         if (clientUser) {
@@ -2716,20 +2900,21 @@ app.get("/api/messages/conversations", async (req, res) => {
         }
       });
 
-      // Останнє повідомлення
+      // Останнє повідомлення (будь-якого типу)
       const lastMessage = await prisma.message.findFirst({
         where: {
           OR: [
             { senderTelegramId: clientTgId, direction: 'client_to_admin' },
-            { receiverTelegramId: clientTgId, direction: 'admin_to_client' }
+            { receiverTelegramId: clientTgId, direction: 'admin_to_client' },
+            { receiverTelegramId: clientTgId, direction: 'system' }
           ]
         },
         orderBy: { createdAt: 'desc' }
       });
 
       conversations.push({
-        clientTelegramId: clientTgId.toString(),
-        clientName: clientInfo.firstName || clientInfo.username || `ID: ${clientTgId}`,
+        clientTelegramId: clientTgIdStr,
+        clientName: clientInfo.firstName || clientInfo.username || `ID: ${clientTgIdStr}`,
         clientUsername: clientInfo.username,
         unreadCount,
         lastMessage: lastMessage ? {
@@ -2770,7 +2955,8 @@ app.get("/api/messages/history/:clientTelegramId", async (req, res) => {
       where: {
         OR: [
           { senderTelegramId: clientTelegramId, direction: 'client_to_admin' },
-          { receiverTelegramId: clientTelegramId, direction: 'admin_to_client' }
+          { receiverTelegramId: clientTelegramId, direction: 'admin_to_client' },
+          { receiverTelegramId: clientTelegramId, direction: 'system' }
         ]
       },
       orderBy: { createdAt: 'desc' },
@@ -2793,6 +2979,8 @@ app.get("/api/messages/history/:clientTelegramId", async (req, res) => {
       id: m.id,
       text: m.text,
       direction: m.direction,
+      messageType: m.messageType || 'text',
+      metadata: m.metadata || null,
       isRead: m.isRead,
       createdAt: m.createdAt,
       senderTelegramId: m.senderTelegramId.toString(),
@@ -2802,6 +2990,103 @@ app.get("/api/messages/history/:clientTelegramId", async (req, res) => {
     res.json(sorted);
   } catch (error) {
     console.error('Error loading message history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRM: Отримати повну інфо про клієнта (для чату)
+app.get("/api/messages/client-info/:clientTelegramId", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+
+    const clientTelegramId = BigInt(req.params.clientTelegramId);
+
+    // Інфо про клієнта
+    const user = await prisma.user.findUnique({
+      where: { telegramId: clientTelegramId }
+    });
+
+    // Замовлення клієнта
+    const orders = await prisma.order.findMany({
+      where: { telegramId: clientTelegramId },
+      orderBy: { createdAt: 'desc' },
+      take: 10
+    });
+
+    // Статистика
+    const totalOrders = orders.length;
+    const totalSpent = orders.reduce((sum, o) => sum + (o.totalPrice || 0), 0);
+    const paidOrders = orders.filter(o => o.isPaid).length;
+
+    res.json({
+      client: user ? {
+        telegramId: user.telegramId.toString(),
+        username: user.username,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        isAgeVerified: user.isAgeVerified,
+        createdAt: user.createdAt
+      } : null,
+      orders: orders.map(o => ({
+        id: o.id,
+        orderNumber: o.orderNumber,
+        status: o.status,
+        isPaid: o.isPaid,
+        totalPrice: o.totalPrice,
+        paymentMethod: o.paymentMethod,
+        deliveryAddress: o.deliveryAddress,
+        trackingNumber: o.trackingNumber,
+        items: o.items,
+        createdAt: o.createdAt
+      })),
+      stats: {
+        totalOrders,
+        totalSpent,
+        paidOrders,
+        unpaidOrders: totalOrders - paidOrders
+      }
+    });
+  } catch (error) {
+    console.error('Error loading client info:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRM: Підтвердити оплату з чату
+app.post("/api/messages/mark-paid/:orderId", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+
+    const orderId = parseInt(req.params.orderId, 10);
+    const order = await prisma.order.update({
+      where: { id: orderId },
+      data: { isPaid: true }
+    });
+
+    // Повідомити клієнта
+    try {
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          chat_id: order.telegramId.toString(),
+          text: `✅ <b>Оплату підтверджено!</b>\n\n📦 Замовлення #${order.orderNumber} позначено як оплачене.\n\nДякуємо! 🎉`,
+          parse_mode: 'HTML'
+        })
+      });
+    } catch(e) {}
+
+    // CRM повідомлення
+    await createCrmMessage(order.telegramId.toString(),
+      `✅ Оплату підтверджено для #${order.orderNumber}`,
+      'payment',
+      { orderId: order.id, orderNumber: order.orderNumber, action: 'paid' }
+    );
+
+    res.json({ success: true, orderNumber: order.orderNumber });
+  } catch (error) {
     res.status(500).json({ error: error.message });
   }
 });
