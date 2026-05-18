@@ -137,3 +137,17 @@ model Recommendation {
   @@index([userId])
   @@index([productId])
 }
+
+model Message {
+  id                 Int      @id @default(autoincrement())
+  senderTelegramId   BigInt
+  receiverTelegramId BigInt
+  text               String
+  direction          String   // "client_to_admin" or "admin_to_client"
+  isRead             Boolean  @default(false)
+  createdAt          DateTime @default(now())
+
+  @@index([senderTelegramId])
+  @@index([receiverTelegramId])
+  @@index([createdAt])
+}

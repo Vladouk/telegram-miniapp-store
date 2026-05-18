@@ -40,8 +40,10 @@ const prisma = new PrismaClient();
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
-// Стейт-менеджмент для розмов адміна з клієнтами
-const adminStates = new Map(); // { adminId: { action: 'waiting_message', clientId: '123' } }
+// CRM: Стейт-менеджмент для розмов адміна з клієнтами
+// Тепер підтримує "режим чату" — адмін може бути в постійному діалозі з клієнтом
+// { adminId: { action: 'chatting', clientId: '123' } }
+const adminStates = new Map();
 
 // Налаштування папки для завантажень
 const uploadsDir = path.join(__dirname, 'uploads');
@@ -456,15 +458,48 @@ app.post("/api/bot/webhook", async (req, res) => {
 
       // Перевірка що це адмін
       if (isAdminId(chatId.toString())) {
-        // Обробка кнопки "Написати клієнту"
+        // Обробка кнопки "Написати клієнту" — входимо в режим чату
         if (data.startsWith('msg_')) {
           const clientId = data.replace('msg_', '');
 
-          // Зберігаємо стан адміна
+          // Зберігаємо стан адміна — РЕЖИМ ЧАТУ (постійний)
           adminStates.set(chatId.toString(), {
-            action: 'waiting_message',
+            action: 'chatting',
             clientId: clientId
           });
+
+          // Отримуємо інфо про клієнта
+          let clientName = `ID: ${clientId}`;
+          try {
+            const clientUser = await prisma.user.findUnique({ where: { telegramId: BigInt(clientId) } });
+            if (clientUser) {
+              clientName = `${clientUser.firstName || ''} ${clientUser.username ? '@' + clientUser.username : ''}`.trim() || `ID: ${clientId}`;
+            }
+          } catch(e) {}
+
+          // Завантажуємо останні повідомлення з історії
+          let historyText = '';
+          try {
+            const recentMessages = await prisma.message.findMany({
+              where: {
+                OR: [
+                  { senderTelegramId: BigInt(clientId), receiverTelegramId: BigInt(chatId) },
+                  { senderTelegramId: BigInt(chatId), receiverTelegramId: BigInt(clientId) }
+                ]
+              },
+              orderBy: { createdAt: 'desc' },
+              take: 10
+            });
+
+            if (recentMessages.length > 0) {
+              const msgs = recentMessages.reverse().map(m => {
+                const time = m.createdAt.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+                const prefix = m.direction === 'client_to_admin' ? '👤' : '🏪';
+                return `${prefix} [${time}] ${m.text}`;
+              }).join('\n');
+              historyText = `\n\n📜 <b>Останні повідомлення:</b>\n<code>${msgs}</code>`;
+            }
+          } catch(e) {}
 
           // Відповідь адміну
           await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
@@ -472,35 +507,125 @@ app.post("/api/bot/webhook", async (req, res) => {
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: chatId,
-              text: `✍️ Напишіть повідомлення для клієнта (ID: ${clientId}):\n\n📝 Наступне ваше повідомлення буде відправлено клієнту.`
+              text: `💬 <b>Режим чату з ${clientName}</b>\n\n✍️ Всі ваші повідомлення тепер йдуть цьому клієнту.\n🛑 Щоб вийти — напишіть /stop${historyText}`,
+              parse_mode: 'HTML',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '🛑 Завершити чат', callback_data: 'stop_chat' }
+                ]]
+              }
             })
           });
 
-          // Відповідь на callback (щоб прибрати "годинник" на кнопці)
+          // Позначаємо повідомлення від цього клієнта як прочитані
+          try {
+            await prisma.message.updateMany({
+              where: {
+                senderTelegramId: BigInt(clientId),
+                receiverTelegramId: BigInt(chatId),
+                isRead: false
+              },
+              data: { isRead: true }
+            });
+          } catch(e) {}
+
+          // Відповідь на callback
           await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
-              callback_query_id: callbackQuery.id
+              callback_query_id: callbackQuery.id,
+              text: `💬 Чат з ${clientName} активний`
             })
           });
         }
-      } else {
-        // Обробка кнопки "Написати адміну" від клієнта
-        if (data === 'reply_admin') {
-          // Зберігаємо стан клієнта
-          adminStates.set(chatId.toString(), {
-            action: 'waiting_reply_to_admin',
-            clientId: chatId.toString()
-          });
 
-          // Відповідь клієнту
+        // Кнопка "Завершити чат"
+        if (data === 'stop_chat') {
+          adminStates.delete(chatId.toString());
+
           await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: chatId,
-              text: `✍️ Напишіть ваше повідомлення для адміністратора:\n\n📝 Наступне ваше повідомлення буде відправлено адміну.`
+              text: `✅ Чат завершено. Ви повернулись в звичайний режим.\n\n📋 /chats — список діалогів\n💬 /chat ID — почати чат`
+            })
+          });
+
+          await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ callback_query_id: callbackQuery.id })
+          });
+        }
+
+        // Кнопка "Мої діалоги" (admin_chats)
+        if (data === 'admin_chats') {
+          try {
+            const recentChats = await prisma.message.findMany({
+              where: { direction: 'client_to_admin' },
+              orderBy: { createdAt: 'desc' },
+              distinct: ['senderTelegramId'],
+              take: 10
+            });
+
+            if (recentChats.length === 0) {
+              await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ chat_id: chatId, text: "📋 Немає діалогів." })
+              });
+            } else {
+              const buttons = [];
+              for (const msg of recentChats) {
+                const clientTgId = msg.senderTelegramId;
+                let clientName = `ID: ${clientTgId}`;
+                try {
+                  const clientUser = await prisma.user.findUnique({ where: { telegramId: clientTgId } });
+                  if (clientUser) {
+                    clientName = `${clientUser.firstName || ''} ${clientUser.username ? '@' + clientUser.username : ''}`.trim() || `ID: ${clientTgId}`;
+                  }
+                } catch(e) {}
+
+                const unread = await prisma.message.count({
+                  where: { senderTelegramId: clientTgId, direction: 'client_to_admin', isRead: false }
+                });
+
+                const badge = unread > 0 ? ` 🔴${unread}` : '';
+                buttons.push([{ text: `💬 ${clientName}${badge}`, callback_data: `msg_${clientTgId}` }]);
+              }
+
+              await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  chat_id: chatId,
+                  text: "📋 <b>Ваші діалоги:</b>\nНатисніть щоб відкрити чат:",
+                  parse_mode: 'HTML',
+                  reply_markup: { inline_keyboard: buttons }
+                })
+              });
+            }
+          } catch(e) {
+            console.error('Error loading admin chats:', e);
+          }
+
+          await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ callback_query_id: callbackQuery.id })
+          });
+        }
+      } else {
+        // Обробка кнопки "Написати адміну" від клієнта — тепер клієнт просто пише
+        if (data === 'reply_admin') {
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `✍️ Просто напишіть ваше повідомлення — воно одразу буде відправлено адміністратору.`
             })
           });
 
@@ -508,9 +633,7 @@ app.post("/api/bot/webhook", async (req, res) => {
           await fetch(`https://api.telegram.org/bot${config.botToken}/answerCallbackQuery`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              callback_query_id: callbackQuery.id
-            })
+            body: JSON.stringify({ callback_query_id: callbackQuery.id })
           });
         }
       }
@@ -530,85 +653,89 @@ app.post("/api/bot/webhook", async (req, res) => {
     const text = message.text;
     console.log(`💬 Message from ${chatId}: ${text}`);
 
-    // Перевірка чи адмін в режимі відправки повідомлення клієнту
+    // CRM: Перевірка чи адмін в режимі чату з клієнтом
     if (adminStates.has(chatId.toString())) {
       const state = adminStates.get(chatId.toString());
 
-      if (state.action === 'waiting_message') {
+      if (state.action === 'chatting') {
         const clientId = state.clientId;
 
-        // Відправляємо повідомлення клієнту
-        const clientResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: clientId,
-            text: `💬 <b>Повідомлення від магазину «Товари з Європи»:</b>\n\n${text}`,
-            parse_mode: 'HTML',
-            reply_markup: {
-              inline_keyboard: [[
-                { text: '💬 Відповісти', callback_data: 'reply_admin' }
-              ]]
-            }
-          })
-        });
-
-        if (clientResponse.ok) {
-          // Підтверджуємо адміну
+        // Команда /stop — вихід з чату
+        if (text === '/stop') {
+          adminStates.delete(chatId.toString());
           await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               chat_id: chatId,
-              text: `✅ Повідомлення відправлено клієнту!`
+              text: `✅ Чат завершено.\n\n📋 /chats — список діалогів\n💬 /chat ID — почати чат`
             })
           });
-        } else {
-          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chat_id: chatId,
-              text: `❌ Помилка відправки повідомлення клієнту.`
-            })
-          });
+          return res.sendStatus(200);
         }
 
-        // Очищуємо стан
-        adminStates.delete(chatId.toString());
-        return res.sendStatus(200);
-      } else if (state.action === 'waiting_reply_to_admin') {
-        // Клієнт відправляє повідомлення адміну
-        const user = await prisma.user.findUnique({
-          where: { telegramId: BigInt(chatId) }
-        });
+        // Команди які працюють навіть в режимі чату
+        if (text === '/chats' || text === '/start' || text?.startsWith('/chat ')) {
+          // Не відправляємо як повідомлення клієнту — обробляємо як команду нижче
+          adminStates.delete(chatId.toString());
+          // Продовжуємо обробку далі (не return)
+        } else {
+          // Відправляємо повідомлення клієнту
+          const clientResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: clientId,
+              text: `💬 <b>Повідомлення від магазину:</b>\n\n${text}`,
+              parse_mode: 'HTML',
+              reply_markup: {
+                inline_keyboard: [[
+                  { text: '💬 Відповісти', callback_data: 'reply_admin' }
+                ]]
+              }
+            })
+          });
 
-        const clientInfo = user ? `${user.firstName || 'Клієнт'} ${user.username ? '@' + user.username : ''}`.trim() : `Клієнт ID: ${chatId}`;
+          // Зберігаємо в БД
+          try {
+            await prisma.message.create({
+              data: {
+                senderTelegramId: BigInt(chatId),
+                receiverTelegramId: BigInt(clientId),
+                text: text,
+                direction: 'admin_to_client'
+              }
+            });
+          } catch(e) { console.error('Failed to save message:', e); }
 
-        // Відправляємо повідомлення всім адмінам
-        await sendToAllAdmins({
-          text: `💬 <b>Повідомлення від клієнта:</b>\n👤 ${clientInfo}\n🆔 ID: <code>${chatId}</code>\n\n${text}`,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: '💬 Відповісти клієнту', callback_data: `msg_${chatId}` }
-            ]]
+          if (clientResponse.ok) {
+            // Тихе підтвердження — просто галочка
+            await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: `✓ Доставлено`,
+                reply_markup: {
+                  inline_keyboard: [[
+                    { text: '🛑 Завершити чат', callback_data: 'stop_chat' }
+                  ]]
+                }
+              })
+            });
+          } else {
+            await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                chat_id: chatId,
+                text: `❌ Помилка відправки. Можливо клієнт заблокував бота.`
+              })
+            });
           }
-        });
 
-        // Підтверджуємо клієнту
-        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: `✅ Ваше повідомлення відправлено адміністратору!`
-          })
-        });
-
-        // Очищуємо стан
-        adminStates.delete(chatId.toString());
-        return res.sendStatus(200);
+          return res.sendStatus(200);
+        }
       }
     }
 
@@ -636,60 +763,269 @@ app.post("/api/bot/webhook", async (req, res) => {
       const webAppUrl = `${config.backendUrl}/webapp/index.html`.trim();
       console.log(`🔗 Web App URL: ${webAppUrl}`);
 
-      const response = {
-        chat_id: chatId,
-        text: "🛍️ Ласкаво просимо до магазину «Товари з Європи»!\nТовари з Європи за найкращими цінами 🇪🇺\n\nНатисни кнопку нижче щоб переглянути товари:",
-        reply_markup: {
-          inline_keyboard: [
-            [
-              {
-                text: "🛒 Відкрити магазин",
-                web_app: { url: webAppUrl },
-              },
-            ],
-          ],
-        },
-      };
-
-      console.log("🤖 Sending response to Telegram...");
-      console.log("Payload:", JSON.stringify(response));
-
-      // Відправка повідомлення
-      const botResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(response),
-      });
-
-      const result = await botResponse.json();
-      console.log("✅ Bot response:", result);
-    } else {
-      // Якщо це не /start і не адмін - пересилаємо повідомлення адміну
-      if (!isAdminId(chatId.toString())) {
-        // Отримуємо інфо про користувача
-        const user = message.from;
-        const userName = user.username ? `@${user.username}` : (user.first_name || 'Клієнт');
-
-        // Пересилаємо всім адмінам з кнопкою відповіді
-        await sendToAllAdmins({
-          text: `💬 <b>Повідомлення від клієнта</b>\n\n👤 ${userName} (ID: ${chatId})\n📩 ${text}`,
-          parse_mode: 'HTML',
-          reply_markup: {
-            inline_keyboard: [[
-              { text: '✉️ Відповісти', callback_data: `msg_${chatId}` }
-            ]]
-          }
-        });
-
-        // Підтверджуємо клієнту
+      // Якщо адмін — показуємо додаткові команди
+      if (isAdminId(chatId.toString())) {
         await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             chat_id: chatId,
-            text: '✅ Ваше повідомлення отримано! Адміністратор відповість найближчим часом.'
+            text: "🔐 <b>Адмін-панель CRM</b>\n\n📋 /chats — Список діалогів з клієнтами\n💬 /chat ID — Почати чат з клієнтом\n🛑 /stop — Завершити поточний чат\n\n🛒 Або відкрийте магазин:",
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [
+                [{ text: "🛒 Відкрити магазин", web_app: { url: webAppUrl } }],
+                [{ text: "📋 Мої діалоги", callback_data: "admin_chats" }]
+              ],
+            },
+          }),
+        });
+      } else {
+        const response = {
+          chat_id: chatId,
+          text: "🛍️ Ласкаво просимо до магазину «Товари з Європи»!\nТовари з Європи за найкращими цінами 🇪🇺\n\nНатисни кнопку нижче щоб переглянути товари:",
+          reply_markup: {
+            inline_keyboard: [
+              [
+                {
+                  text: "🛒 Відкрити магазин",
+                  web_app: { url: webAppUrl },
+                },
+              ],
+            ],
+          },
+        };
+
+        const botResponse = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(response),
+        });
+
+        const result = await botResponse.json();
+        console.log("✅ Bot response:", result);
+      }
+    } else if (text === "/chats" && isAdminId(chatId.toString())) {
+      // CRM: Список активних діалогів
+      try {
+        const recentChats = await prisma.message.findMany({
+          where: {
+            direction: 'client_to_admin'
+          },
+          orderBy: { createdAt: 'desc' },
+          distinct: ['senderTelegramId'],
+          take: 20
+        });
+
+        if (recentChats.length === 0) {
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: "📋 Немає активних діалогів."
+            })
+          });
+        } else {
+          // Отримуємо інфо про клієнтів
+          const chatList = [];
+          for (const msg of recentChats) {
+            const clientTgId = msg.senderTelegramId;
+            let clientName = `ID: ${clientTgId}`;
+            try {
+              const clientUser = await prisma.user.findUnique({ where: { telegramId: clientTgId } });
+              if (clientUser) {
+                clientName = `${clientUser.firstName || ''} ${clientUser.username ? '@' + clientUser.username : ''}`.trim() || `ID: ${clientTgId}`;
+              }
+            } catch(e) {}
+
+            // Кількість непрочитаних
+            const unread = await prisma.message.count({
+              where: {
+                senderTelegramId: clientTgId,
+                direction: 'client_to_admin',
+                isRead: false
+              }
+            });
+
+            const time = msg.createdAt.toLocaleString('uk-UA', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+            const unreadBadge = unread > 0 ? ` 🔴 ${unread}` : '';
+            const preview = msg.text.length > 30 ? msg.text.substring(0, 30) + '...' : msg.text;
+            chatList.push(`👤 <b>${clientName}</b>${unreadBadge}\n   📩 "${preview}"\n   🕐 ${time}\n   💬 /chat_${clientTgId}`);
+          }
+
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: `📋 <b>Діалоги з клієнтами:</b>\n\n${chatList.join('\n\n')}`,
+              parse_mode: 'HTML'
+            })
+          });
+        }
+      } catch(e) {
+        console.error('Error loading chats:', e);
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ chat_id: chatId, text: `❌ Помилка: ${e.message}` })
+        });
+      }
+    } else if ((text?.startsWith('/chat ') || text?.startsWith('/chat_')) && isAdminId(chatId.toString())) {
+      // CRM: Почати чат з конкретним клієнтом
+      const clientId = text.replace('/chat_', '').replace('/chat ', '').trim();
+
+      if (!clientId || isNaN(clientId)) {
+        await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: `❌ Невірний формат. Використовуйте: /chat 123456789`
           })
         });
+        return res.sendStatus(200);
+      }
+
+      // Входимо в режим чату
+      adminStates.set(chatId.toString(), {
+        action: 'chatting',
+        clientId: clientId
+      });
+
+      // Отримуємо інфо про клієнта
+      let clientName = `ID: ${clientId}`;
+      try {
+        const clientUser = await prisma.user.findUnique({ where: { telegramId: BigInt(clientId) } });
+        if (clientUser) {
+          clientName = `${clientUser.firstName || ''} ${clientUser.username ? '@' + clientUser.username : ''}`.trim() || `ID: ${clientId}`;
+        }
+      } catch(e) {}
+
+      // Завантажуємо історію
+      let historyText = '';
+      try {
+        const recentMessages = await prisma.message.findMany({
+          where: {
+            OR: [
+              { senderTelegramId: BigInt(clientId), receiverTelegramId: BigInt(chatId) },
+              { senderTelegramId: BigInt(chatId), receiverTelegramId: BigInt(clientId) }
+            ]
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 15
+        });
+
+        if (recentMessages.length > 0) {
+          const msgs = recentMessages.reverse().map(m => {
+            const time = m.createdAt.toLocaleTimeString('uk-UA', { hour: '2-digit', minute: '2-digit' });
+            const prefix = m.direction === 'client_to_admin' ? '👤' : '🏪';
+            return `${prefix} [${time}] ${m.text.length > 60 ? m.text.substring(0, 60) + '...' : m.text}`;
+          }).join('\n');
+          historyText = `\n\n📜 <b>Історія:</b>\n<code>${msgs}</code>`;
+        }
+      } catch(e) {}
+
+      // Позначаємо як прочитані
+      try {
+        await prisma.message.updateMany({
+          where: {
+            senderTelegramId: BigInt(clientId),
+            direction: 'client_to_admin',
+            isRead: false
+          },
+          data: { isRead: true }
+        });
+      } catch(e) {}
+
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `💬 <b>Чат з ${clientName}</b>\n\n✍️ Всі повідомлення йдуть клієнту.\n🛑 /stop — завершити чат${historyText}`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🛑 Завершити чат', callback_data: 'stop_chat' }
+            ]]
+          }
+        })
+      });
+    } else if (text === "/stop" && isAdminId(chatId.toString())) {
+      adminStates.delete(chatId.toString());
+      await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: `✅ Ви не в режимі чату.\n\n📋 /chats — список діалогів`
+        })
+      });
+    } else {
+      // Якщо це не команда і не адмін — це повідомлення від клієнта
+      if (!isAdminId(chatId.toString())) {
+        // Отримуємо інфо про користувача
+        const msgUser = message.from;
+        const userName = msgUser.username ? `@${msgUser.username}` : (msgUser.first_name || 'Клієнт');
+
+        // Зберігаємо повідомлення в БД
+        try {
+          await prisma.message.create({
+            data: {
+              senderTelegramId: BigInt(chatId),
+              receiverTelegramId: BigInt(config.adminIds[0] || 0),
+              text: text || '[медіа]',
+              direction: 'client_to_admin'
+            }
+          });
+        } catch(e) { console.error('Failed to save client message:', e); }
+
+        // Перевіряємо чи хтось з адмінів зараз в чаті з цим клієнтом
+        let adminInChat = null;
+        for (const [adminId, state] of adminStates.entries()) {
+          if (state.action === 'chatting' && state.clientId === chatId.toString()) {
+            adminInChat = adminId;
+            break;
+          }
+        }
+
+        if (adminInChat) {
+          // Адмін вже в чаті з цим клієнтом — відправляємо тільки йому, без зайвих кнопок
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: adminInChat,
+              text: `👤 <b>${userName}:</b>\n${text}`,
+              parse_mode: 'HTML'
+            })
+          });
+        } else {
+          // Ніхто не в чаті — відправляємо всім адмінам з кнопкою
+          await sendToAllAdmins({
+            text: `💬 <b>Повідомлення від клієнта</b>\n\n👤 ${userName} (ID: <code>${chatId}</code>)\n📩 ${text}`,
+            parse_mode: 'HTML',
+            reply_markup: {
+              inline_keyboard: [[
+                { text: '💬 Відповісти', callback_data: `msg_${chatId}` }
+              ]]
+            }
+          });
+        }
+
+        // Підтверджуємо клієнту (тільки якщо адмін НЕ в чаті — щоб не спамити)
+        if (!adminInChat) {
+          await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              chat_id: chatId,
+              text: '✅ Повідомлення отримано! Адміністратор відповість найближчим часом.'
+            })
+          });
+        }
       }
     }
 
@@ -2308,8 +2644,29 @@ app.post("/api/messages/send", async (req, res) => {
     const response = await fetch(`https://api.telegram.org/bot${config.botToken}/sendMessage`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ chat_id: String(telegramId), text, parse_mode: parseMode })
+      body: JSON.stringify({
+        chat_id: String(telegramId),
+        text: `💬 <b>Повідомлення від магазину:</b>\n\n${text}`,
+        parse_mode: parseMode,
+        reply_markup: {
+          inline_keyboard: [[
+            { text: '💬 Відповісти', callback_data: 'reply_admin' }
+          ]]
+        }
+      })
     });
+
+    // Зберігаємо в БД
+    try {
+      await prisma.message.create({
+        data: {
+          senderTelegramId: BigInt(adminId),
+          receiverTelegramId: BigInt(telegramId),
+          text: text,
+          direction: 'admin_to_client'
+        }
+      });
+    } catch(e) { console.error('Failed to save message:', e); }
 
     if (response.ok) {
       res.json({ success: true });
@@ -2317,6 +2674,152 @@ app.post("/api/messages/send", async (req, res) => {
       const err = await response.json();
       res.status(500).json({ error: "Failed to send message", details: err });
     }
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRM: Отримати список діалогів (для WebApp адмін-панелі)
+app.get("/api/messages/conversations", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+
+    // Отримуємо унікальних клієнтів з повідомленнями
+    const clientMessages = await prisma.message.findMany({
+      where: { direction: 'client_to_admin' },
+      orderBy: { createdAt: 'desc' },
+      distinct: ['senderTelegramId']
+    });
+
+    const conversations = [];
+    for (const msg of clientMessages) {
+      const clientTgId = msg.senderTelegramId;
+
+      // Інфо про клієнта
+      let clientInfo = { telegramId: clientTgId.toString(), firstName: null, username: null };
+      try {
+        const clientUser = await prisma.user.findUnique({ where: { telegramId: clientTgId } });
+        if (clientUser) {
+          clientInfo.firstName = clientUser.firstName;
+          clientInfo.lastName = clientUser.lastName;
+          clientInfo.username = clientUser.username;
+        }
+      } catch(e) {}
+
+      // Кількість непрочитаних
+      const unreadCount = await prisma.message.count({
+        where: {
+          senderTelegramId: clientTgId,
+          direction: 'client_to_admin',
+          isRead: false
+        }
+      });
+
+      // Останнє повідомлення
+      const lastMessage = await prisma.message.findFirst({
+        where: {
+          OR: [
+            { senderTelegramId: clientTgId, direction: 'client_to_admin' },
+            { receiverTelegramId: clientTgId, direction: 'admin_to_client' }
+          ]
+        },
+        orderBy: { createdAt: 'desc' }
+      });
+
+      conversations.push({
+        clientTelegramId: clientTgId.toString(),
+        clientName: clientInfo.firstName || clientInfo.username || `ID: ${clientTgId}`,
+        clientUsername: clientInfo.username,
+        unreadCount,
+        lastMessage: lastMessage ? {
+          text: lastMessage.text,
+          direction: lastMessage.direction,
+          createdAt: lastMessage.createdAt
+        } : null
+      });
+    }
+
+    // Сортуємо: непрочитані вгорі, потім за датою
+    conversations.sort((a, b) => {
+      if (a.unreadCount > 0 && b.unreadCount === 0) return -1;
+      if (a.unreadCount === 0 && b.unreadCount > 0) return 1;
+      const aDate = a.lastMessage?.createdAt || new Date(0);
+      const bDate = b.lastMessage?.createdAt || new Date(0);
+      return new Date(bDate) - new Date(aDate);
+    });
+
+    res.json(conversations);
+  } catch (error) {
+    console.error('Error loading conversations:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRM: Отримати історію повідомлень з конкретним клієнтом
+app.get("/api/messages/history/:clientTelegramId", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+
+    const clientTelegramId = BigInt(req.params.clientTelegramId);
+    const limit = parseInt(req.query.limit || '50', 10);
+    const offset = parseInt(req.query.offset || '0', 10);
+
+    const messages = await prisma.message.findMany({
+      where: {
+        OR: [
+          { senderTelegramId: clientTelegramId, direction: 'client_to_admin' },
+          { receiverTelegramId: clientTelegramId, direction: 'admin_to_client' }
+        ]
+      },
+      orderBy: { createdAt: 'desc' },
+      take: limit,
+      skip: offset
+    });
+
+    // Позначаємо як прочитані
+    await prisma.message.updateMany({
+      where: {
+        senderTelegramId: clientTelegramId,
+        direction: 'client_to_admin',
+        isRead: false
+      },
+      data: { isRead: true }
+    });
+
+    // Повертаємо в хронологічному порядку
+    const sorted = messages.reverse().map(m => ({
+      id: m.id,
+      text: m.text,
+      direction: m.direction,
+      isRead: m.isRead,
+      createdAt: m.createdAt,
+      senderTelegramId: m.senderTelegramId.toString(),
+      receiverTelegramId: m.receiverTelegramId.toString()
+    }));
+
+    res.json(sorted);
+  } catch (error) {
+    console.error('Error loading message history:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+// CRM: Кількість непрочитаних повідомлень (для бейджа)
+app.get("/api/messages/unread-count", async (req, res) => {
+  try {
+    const adminId = req.headers.adminid || req.headers.adminId;
+    if (!isAdminId(adminId)) return res.status(403).json({ error: "Not authorized" });
+
+    const count = await prisma.message.count({
+      where: {
+        direction: 'client_to_admin',
+        isRead: false
+      }
+    });
+
+    res.json({ unreadCount: count });
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

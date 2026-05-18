@@ -710,19 +710,47 @@ window.showAdminTab = function (tab) {
     } else if (tab === 'messages') {
         adminContent.innerHTML = `
             <div style="margin-top: 20px;">
-                <h3>📣 Розсилка всім клієнтам</h3>
-                <div style="background: var(--light); padding: 20px; border-radius: 12px; margin-bottom: 20px;">
-                    <div class="form-group">
-                        <label>Текст розсилки:</label>
-                        <textarea id="broadcastMessage" placeholder="Оновлення, акції, важливе повідомлення..." style="min-height: 100px;"></textarea>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:8px;">
+                    <h3 style="margin:0;">💬 CRM Повідомлення</h3>
+                    <button onclick="showBroadcastPanel()" class="btn-small" style="padding:8px 14px;background:#8e44ad;color:#fff;">📣 Розсилка</button>
+                </div>
+
+                <!-- Broadcast panel (hidden by default) -->
+                <div id="broadcastPanel" style="display:none;background:var(--light);padding:16px;border-radius:12px;margin-bottom:16px;">
+                    <h4 style="margin:0 0 10px;">📣 Розсилка всім клієнтам</h4>
+                    <textarea id="broadcastMessage" placeholder="Текст розсилки..." style="min-height:80px;width:100%;box-sizing:border-box;padding:10px;border:1px solid var(--border);border-radius:8px;font-size:14px;"></textarea>
+                    <div style="display:flex;gap:8px;margin-top:8px;">
+                        <button type="button" onclick="sendBroadcastMessage()" class="btn btn-primary" style="flex:1;">📣 Відправити</button>
+                        <button type="button" onclick="document.getElementById('broadcastPanel').style.display='none'" class="btn-small" style="padding:10px 14px;">✕</button>
                     </div>
-                    <button type="button" onclick="sendBroadcastMessage()" class="btn btn-primary btn-full">📣 Відправити всім</button>
-                    <div id="broadcastResult" style="margin-top: 8px; font-size: 12px; color: var(--text-light);"></div>
+                    <div id="broadcastResult" style="margin-top:8px;font-size:12px;color:var(--text-light);"></div>
+                </div>
+
+                <!-- Conversations list -->
+                <div id="crmConversationsList">
+                    <div style="text-align:center;padding:20px;color:var(--text-light);">Завантаження...</div>
+                </div>
+
+                <!-- Chat window (hidden by default) -->
+                <div id="crmChatWindow" style="display:none;">
+                    <div style="display:flex;align-items:center;gap:10px;margin-bottom:12px;padding:10px;background:var(--light);border-radius:10px;">
+                        <button onclick="closeCrmChat()" style="background:none;border:none;font-size:18px;cursor:pointer;">←</button>
+                        <div>
+                            <div id="crmChatClientName" style="font-weight:700;font-size:15px;"></div>
+                            <div id="crmChatClientId" style="font-size:12px;color:var(--text-light);"></div>
+                        </div>
+                    </div>
+                    <div id="crmChatMessages" style="max-height:400px;overflow-y:auto;padding:10px;background:var(--light);border-radius:12px;margin-bottom:12px;"></div>
+                    <div style="display:flex;gap:8px;">
+                        <input type="text" id="crmChatInput" placeholder="Написати повідомлення..." style="flex:1;padding:12px;border:1px solid var(--border);border-radius:999px;font-size:14px;" onkeypress="if(event.key==='Enter')sendCrmMessage()">
+                        <button onclick="sendCrmMessage()" style="padding:12px 18px;background:var(--secondary);color:#fff;border:none;border-radius:999px;font-weight:600;cursor:pointer;">➤</button>
+                    </div>
                 </div>
             </div>
         `;
 
-        loadClientsForMessages();
+        loadCrmConversations();
+
 
     } else if (tab === 'promocodes') {
         adminContent.innerHTML = `
@@ -2949,6 +2977,168 @@ window.sendBroadcastMessage = async function () {
         showLoading(false);
     }
 }
+
+// ==================== CRM CHAT FUNCTIONS ====================
+
+// Поточний відкритий чат
+let currentCrmChatClientId = null;
+
+window.showBroadcastPanel = function() {
+    const panel = document.getElementById('broadcastPanel');
+    if (panel) panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+}
+
+window.loadCrmConversations = async function() {
+    const container = document.getElementById('crmConversationsList');
+    if (!container) return;
+
+    try {
+        const adminHeaders = getAdminHeaders();
+        const response = await fetch(`${CONFIG.API_URL}/messages/conversations`, {
+            headers: adminHeaders
+        });
+
+        if (!response.ok) throw new Error('Failed to load conversations');
+        const conversations = await response.json();
+
+        if (conversations.length === 0) {
+            container.innerHTML = '<div style="text-align:center;padding:30px;color:var(--text-light);">Немає діалогів. Коли клієнт напише — тут з\'явиться чат.</div>';
+            return;
+        }
+
+        container.innerHTML = conversations.map(conv => {
+            const unreadBadge = conv.unreadCount > 0
+                ? `<span style="background:#e74c3c;color:#fff;border-radius:50%;width:22px;height:22px;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;">${conv.unreadCount}</span>`
+                : '';
+            const lastMsg = conv.lastMessage
+                ? `<div style="font-size:12px;color:var(--text-light);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:200px;">${conv.lastMessage.direction === 'admin_to_client' ? 'Ви: ' : ''}${conv.lastMessage.text}</div>`
+                : '';
+            const time = conv.lastMessage
+                ? `<div style="font-size:11px;color:var(--text-light);">${new Date(conv.lastMessage.createdAt).toLocaleString('uk-UA', {day:'2-digit',month:'2-digit',hour:'2-digit',minute:'2-digit'})}</div>`
+                : '';
+
+            return `
+                <div onclick="openCrmChat('${conv.clientTelegramId}', '${(conv.clientName || '').replace(/'/g, "\\'")}')" style="display:flex;align-items:center;gap:12px;padding:12px;background:var(--light);border-radius:12px;margin-bottom:8px;cursor:pointer;border:1px solid ${conv.unreadCount > 0 ? '#e74c3c' : 'var(--border)'};">
+                    <div style="width:42px;height:42px;border-radius:50%;background:var(--secondary);display:flex;align-items:center;justify-content:center;color:#fff;font-size:18px;flex-shrink:0;">👤</div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-weight:600;font-size:14px;">${conv.clientName}${conv.clientUsername ? ' <span style="color:var(--text-light);font-weight:400;">@' + conv.clientUsername + '</span>' : ''}</div>
+                        ${lastMsg}
+                    </div>
+                    <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
+                        ${time}
+                        ${unreadBadge}
+                    </div>
+                </div>
+            `;
+        }).join('');
+    } catch(e) {
+        console.error('Error loading conversations:', e);
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:#e74c3c;">Помилка завантаження</div>';
+    }
+}
+
+window.openCrmChat = async function(clientTelegramId, clientName) {
+    currentCrmChatClientId = clientTelegramId;
+
+    // Показуємо вікно чату, ховаємо список
+    document.getElementById('crmConversationsList').style.display = 'none';
+    document.getElementById('crmChatWindow').style.display = 'block';
+    document.getElementById('crmChatClientName').textContent = clientName || 'Клієнт';
+    document.getElementById('crmChatClientId').textContent = `ID: ${clientTelegramId}`;
+
+    // Завантажуємо історію
+    const messagesContainer = document.getElementById('crmChatMessages');
+    messagesContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-light);">Завантаження...</div>';
+
+    try {
+        const adminHeaders = getAdminHeaders();
+        const response = await fetch(`${CONFIG.API_URL}/messages/history/${clientTelegramId}`, {
+            headers: adminHeaders
+        });
+
+        if (!response.ok) throw new Error('Failed to load messages');
+        const messages = await response.json();
+
+        if (messages.length === 0) {
+            messagesContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-light);">Немає повідомлень</div>';
+        } else {
+            messagesContainer.innerHTML = messages.map(msg => {
+                const isAdmin = msg.direction === 'admin_to_client';
+                const time = new Date(msg.createdAt).toLocaleTimeString('uk-UA', {hour:'2-digit',minute:'2-digit'});
+                const align = isAdmin ? 'flex-end' : 'flex-start';
+                const bg = isAdmin ? 'var(--secondary)' : 'var(--bg)';
+                const color = isAdmin ? '#fff' : 'var(--text)';
+                const border = isAdmin ? 'none' : '1px solid var(--border)';
+
+                return `
+                    <div style="display:flex;justify-content:${align};margin-bottom:8px;">
+                        <div style="max-width:80%;padding:10px 14px;border-radius:16px;background:${bg};color:${color};border:${border};font-size:14px;line-height:1.4;">
+                            <div>${msg.text}</div>
+                            <div style="font-size:10px;opacity:0.7;margin-top:4px;text-align:right;">${time}</div>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            // Скролимо вниз
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+    } catch(e) {
+        console.error('Error loading chat history:', e);
+        messagesContainer.innerHTML = '<div style="text-align:center;padding:20px;color:#e74c3c;">Помилка</div>';
+    }
+
+    // Фокус на інпут
+    setTimeout(() => document.getElementById('crmChatInput')?.focus(), 100);
+}
+
+window.closeCrmChat = function() {
+    currentCrmChatClientId = null;
+    document.getElementById('crmChatWindow').style.display = 'none';
+    document.getElementById('crmConversationsList').style.display = 'block';
+    // Оновлюємо список
+    loadCrmConversations();
+}
+
+window.sendCrmMessage = async function() {
+    const input = document.getElementById('crmChatInput');
+    const text = input?.value.trim();
+    if (!text || !currentCrmChatClientId) return;
+
+    input.value = '';
+
+    // Оптимістичний UI — одразу показуємо
+    const messagesContainer = document.getElementById('crmChatMessages');
+    const time = new Date().toLocaleTimeString('uk-UA', {hour:'2-digit',minute:'2-digit'});
+    const msgHtml = `
+        <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+            <div style="max-width:80%;padding:10px 14px;border-radius:16px;background:var(--secondary);color:#fff;font-size:14px;line-height:1.4;">
+                <div>${text}</div>
+                <div style="font-size:10px;opacity:0.7;margin-top:4px;text-align:right;">${time}</div>
+            </div>
+        </div>
+    `;
+    messagesContainer.insertAdjacentHTML('beforeend', msgHtml);
+    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+    try {
+        const adminHeaders = getAdminHeaders();
+        const response = await fetch(`${CONFIG.API_URL}/messages/send`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...adminHeaders },
+            body: JSON.stringify({ telegram_id: currentCrmChatClientId, text: text })
+        });
+
+        if (!response.ok) {
+            showToast('Помилка відправки');
+        }
+    } catch(e) {
+        console.error('Error sending message:', e);
+        showToast('Помилка відправки');
+    }
+}
+
+// ==================== END CRM CHAT FUNCTIONS ====================
 
 // Прев'ю скріншоту трекінгу
 window.previewTrackingScreenshot = function (input) {
