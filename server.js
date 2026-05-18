@@ -2112,7 +2112,7 @@ app.post("/api/orders", async (req, res) => {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           chat_id: telegram_id,
-          text: `✅ <b>Ваше замовлення створене!</b>\n\n📦 <b>Номер замовлення:</b> #${orderNumber}\n\n📋 <b>Ваші товари:</b>\n${clientItemsText}\n\n${deliveryInfoText}💳 <b>Спосіб оплати:</b> ${payment_method === 'cash' ? '💰 Готівка' : '🏦 Оплата за рахунком ФОП'}\n\n💰 <b>Сума:</b> ${totalText}\n\n⏳ <b>Статус:</b> Очікує підтвердження${payment_method === 'card' ? `\n\n💳 <b>Реквізити для оплати:</b>\n✅ ФОП Ханчич Руслан Васильович\n✅ ЄДРПОУ: 2976802871\n✅ IBAN: UA623220010000026000350055874\n❕ Призначення: Оплата за товар\n\n💵 Після оплати надішліть скріншот через додаток або прямо в цей чат.` : ''}\n\nМи скоро зв'яжемось з вами.`,
+          text: `✅ <b>Ваше замовлення створене!</b>\n\n📦 <b>Номер замовлення:</b> #${orderNumber}\n\n📋 <b>Ваші товари:</b>\n${clientItemsText}\n\n${deliveryInfoText}💳 <b>Спосіб оплати:</b> ${payment_method === 'cash' ? '💰 Готівка' : '🏦 Оплата за рахунком ФОП'}\n\n💰 <b>Сума:</b> ${totalText}\n\n⏳ <b>Статус:</b> Очікує підтвердження${payment_method === 'card' ? `\n\n💳 <b>Реквізити для оплати:</b>\n\n✅ Отримувач:\n<code>ФОП Ханчич Руслан Васильович</code>\n\n✅ Код ЄДРПОУ / ІПН:\n<code>2976802871</code>\n\n✅ IBAN:\n<code>UA623220010000026000350055874</code>\n\n❕ Призначення платежу:\n<code>Оплата за товар</code>\n\n👆 <i>Натисніть на дані щоб скопіювати</i>\n\n💵 Після оплати надішліть скріншот через додаток або прямо в цей чат.` : ''}\n\nМи скоро зв'яжемось з вами.`,
           parse_mode: 'HTML',
           reply_markup: {
             inline_keyboard: [[
