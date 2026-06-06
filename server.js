@@ -1,5 +1,6 @@
 import express from "express";
 import cors from "cors";
+import compression from "compression";
 import path from "path";
 import { fileURLToPath } from "url";
 import crypto from "crypto";
@@ -36,7 +37,10 @@ const config = {
   groqApiKey: process.env.GROQ_API_KEY || null,
 };
 
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({
+  datasources: { db: { url: process.env.DATABASE_URL } },
+  log: [],
+});
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 
@@ -363,15 +367,30 @@ async function markAgeVerified(telegramId) {
   return user;
 }
 
+// In-memory image cache (1 hour TTL) — reduces DB reads and egress
+const imageCache = new Map(); // filename -> { data, mimeType, etag, ts }
+const IMAGE_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// In-memory products cache (5 minutes TTL)
+const productsCache = { data: null, ts: 0 };
+const PRODUCTS_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+function invalidateProductsCache() {
+  productsCache.data = null;
+  productsCache.ts = 0;
+}
+
 // Middleware
+app.use(compression({ level: 6, threshold: 1024 })); // gzip compression
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Static files
-app.use("/static", express.static(path.join(__dirname, "webapp")));
-app.use("/webapp", express.static(path.join(__dirname, "webapp")));
-app.use("/uploads", express.static(uploadsDir));
+// Static files with caching
+const staticOptions = { maxAge: '1d', etag: true };
+app.use("/static", express.static(path.join(__dirname, "webapp"), staticOptions));
+app.use("/webapp", express.static(path.join(__dirname, "webapp"), staticOptions));
+app.use("/uploads", express.static(uploadsDir, staticOptions));
 
 // Зворотна сумісність: /uploads/:filename -> /api/images/:filename
 app.get("/uploads/:filename", async (req, res) => {
@@ -1510,8 +1529,24 @@ app.delete("/api/users/:telegramId", async (req, res) => {
 app.get("/api/products", async (req, res) => {
   try {
     const { category, inStock } = req.query;
-    const filters = {};
 
+    // Кешуємо тільки запит без фільтрів (основний запит з фронтенду)
+    if (!category && !inStock) {
+      const now = Date.now();
+      if (productsCache.data && (now - productsCache.ts) < PRODUCTS_CACHE_TTL) {
+        res.set('Cache-Control', 'public, max-age=60');
+        return res.json(productsCache.data);
+      }
+      const products = await prisma.product.findMany({
+        orderBy: { createdAt: "desc" },
+      });
+      productsCache.data = products;
+      productsCache.ts = now;
+      res.set('Cache-Control', 'public, max-age=60');
+      return res.json(products);
+    }
+
+    const filters = {};
     if (category) filters.category = category;
     if (inStock !== undefined) filters.inStock = inStock === "true";
 
@@ -3360,14 +3395,40 @@ app.post("/api/upload", upload.single('image'), async (req, res) => {
 // Endpoint для отримання зображення з БД
 app.get("/api/images/:filename", async (req, res) => {
   try {
-    const image = await prisma.image.findUnique({
-      where: { filename: req.params.filename }
-    });
-    if (!image) {
-      return res.status(404).json({ error: "Image not found" });
+    const filename = req.params.filename;
+    const now = Date.now();
+
+    // Перевіряємо in-memory кеш
+    const cached = imageCache.get(filename);
+    if (cached && (now - cached.ts) < IMAGE_CACHE_TTL) {
+      // ETag підтримка — якщо клієнт вже має цю версію
+      if (req.headers['if-none-match'] === cached.etag) {
+        return res.status(304).end();
+      }
+      res.set('Content-Type', cached.mimeType);
+      res.set('Cache-Control', 'public, max-age=86400');
+      res.set('ETag', cached.etag);
+      return res.send(cached.data);
     }
+
+    // Якщо не в кеші — читаємо з БД
+    const image = await prisma.image.findUnique({
+      where: { filename }
+    });
+    if (!image) return res.status(404).json({ error: "Image not found" });
+
+    const etag = `"${crypto.createHash('md5').update(image.data).digest('hex')}"`;
+
+    // Зберігаємо в кеш
+    imageCache.set(filename, { data: image.data, mimeType: image.mimeType, etag, ts: now });
+
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
+
     res.set('Content-Type', image.mimeType);
-    res.set('Cache-Control', 'public, max-age=31536000');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.set('ETag', etag);
     res.send(image.data);
   } catch (error) {
     res.status(500).json({ error: error.message });

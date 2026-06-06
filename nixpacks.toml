@@ -6,3 +6,6 @@ cmds = ["npm install"]
 
 [start]
 cmd = "sh start.sh"
+
+[variables]
+NODE_OPTIONS = "--max-old-space-size=256"
