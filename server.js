@@ -88,9 +88,9 @@ const storage = multer.diskStorage({
 
 const upload = multer({
   storage: storage,
-  limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+  limits: { fileSize: 15 * 1024 * 1024 }, // 15MB limit
   fileFilter: (req, file, cb) => {
-    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const allowedMimes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif'];
     if (allowedMimes.includes(file.mimetype)) {
       cb(null, true);
     } else {
@@ -440,7 +440,7 @@ app.get("/api/bot/test", (req, res) => {
 // Telegram Bot Webhook
 app.post("/api/bot/webhook", async (req, res) => {
   try {
-    console.log("📨 Webhook received:", JSON.stringify(req.body, null, 2));
+    // Minimal logging to reduce RAM/storage usage
 
     // Обробка callback_query (натиснення кнопок)
     if (req.body.callback_query) {
@@ -450,7 +450,7 @@ app.post("/api/bot/webhook", async (req, res) => {
 
       await upsertTelegramUserFromPayload(callbackQuery.from);
 
-      console.log(`🔘 Callback from ${chatId}: ${data}`);
+      console.log(`🔘 ${chatId}: ${data}`);
 
       if (data === "age_ok") {
         const user = await markAgeVerified(chatId);
@@ -680,7 +680,7 @@ app.post("/api/bot/webhook", async (req, res) => {
 
     const { message } = req.body;
     if (!message) {
-      console.log("⚠️ No message in webhook");
+      // No message - ignore silently
       return res.sendStatus(200);
     }
 
@@ -688,7 +688,6 @@ app.post("/api/bot/webhook", async (req, res) => {
 
     const chatId = message.chat.id;
     const text = message.text;
-    console.log(`💬 Message from ${chatId}: ${text}`);
 
     // CRM: Обробка фото від клієнта
     if (message.photo && !isAdminId(chatId.toString())) {
